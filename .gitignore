@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Slipstream runtime artifacts (meshes, transcripts, logs, results JSON)
+runs/
+wb_output.txt
+*.log
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Test caches
+.pytest_cache/
+.coverage
+
+# --- Optional: uncomment if you don't want study data in the repo ---
+# experiments.xlsx
+# config/config.yaml

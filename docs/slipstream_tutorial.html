@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Slipstream v0.8 — User Guide</title>
+<style>
+  :root {
+    --bg:       #1e1f22;
+    --panel:    #26282c;
+    --field:    #2b2d31;
+    --border:   #3a3d43;
+    --hover:    #33363c;
+    --text:     #d7dae0;
+    --dim:      #9aa0aa;
+    --accent:   #4f8cff;
+    --green:    #3fbf7f;
+    --amber:    #e8a33d;
+    --red:      #e5534b;
+    --teal:     #2fb3a8;
+    --purple:   #b07fe8;
+    --font:     'Segoe UI', system-ui, sans-serif;
+    --mono:     'Cascadia Code', 'Consolas', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  /* ── LAYOUT ─────────────────────────────────────────── */
+  .shell {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: 100vh;
+  }
+
+  /* ── SIDEBAR ─────────────────────────────────────────── */
+  nav {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    padding: 28px 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+
+  .nav-logo {
+    padding: 0 20px 24px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+  .nav-logo .wordmark {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.3px;
+  }
+  .nav-logo .tagline {
+    font-size: 11px;
+    color: var(--dim);
+    margin-top: 2px;
+  }
+
+  nav a {
+    display: block;
+    padding: 7px 20px;
+    color: var(--dim);
+    text-decoration: none;
+    font-size: 12.5px;
+    border-left: 2px solid transparent;
+    transition: all .15s;
+  }
+  nav a:hover { color: var(--text); background: var(--hover); }
+  nav a.active { color: var(--accent); border-left-color: var(--accent);
+                  background: #1e2a3f; }
+  nav .section-head {
+    padding: 14px 20px 5px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--border);
+  }
+
+  /* ── CONTENT ─────────────────────────────────────────── */
+  main {
+    padding: 48px 60px 80px;
+    max-width: 860px;
+  }
+
+  h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px;
+       color: var(--text); margin-bottom: 8px; }
+  h2 { font-size: 20px; font-weight: 700; color: var(--text);
+       margin: 52px 0 16px; padding-bottom: 10px;
+       border-bottom: 1px solid var(--border); }
+  h3 { font-size: 14px; font-weight: 700; color: var(--text);
+       margin: 28px 0 10px; }
+  p  { color: var(--dim); margin-bottom: 14px; line-height: 1.75; }
+  strong { color: var(--text); }
+
+  /* ── HERO ─────────────────────────────────────────────── */
+  .hero {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 28px 32px;
+    margin-bottom: 40px;
+    display: flex;
+    gap: 32px;
+    align-items: center;
+  }
+  .hero-badge {
+    background: var(--accent);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 20px;
+    white-space: nowrap;
+    align-self: flex-start;
+  }
+  .hero p { margin: 0; font-size: 14px; }
+
+  /* ── STEPS ─────────────────────────────────────────────── */
+  .steps { display: flex; flex-direction: column; gap: 4px; }
+  .step {
+    display: grid;
+    grid-template-columns: 32px 1fr;
+    gap: 14px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .step:last-child { border-bottom: none; }
+  .step-num {
+    width: 28px; height: 28px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .step-num.green { background: var(--green); }
+  .step-num.amber { background: var(--amber); }
+  .step h4 { font-size: 14px; font-weight: 700; color: var(--text);
+              margin-bottom: 5px; }
+  .step p { margin: 0; font-size: 13px; }
+
+  /* ── CALLOUTS ─────────────────────────────────────────── */
+  .callout {
+    background: var(--field);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 6px 6px 0;
+    padding: 13px 16px;
+    margin: 18px 0;
+    font-size: 13px;
+  }
+  .callout.tip   { border-color: var(--green); }
+  .callout.warn  { border-color: var(--amber); }
+  .callout.danger{ border-color: var(--red); }
+  .callout .label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.7px; margin-bottom: 5px;
+  }
+  .callout.tip   .label { color: var(--green); }
+  .callout.warn  .label { color: var(--amber); }
+  .callout.danger .label { color: var(--red); }
+  .callout p { color: var(--text); margin: 0; }
+
+  /* ── INTERFACE MAP ─────────────────────────────────────── */
+  .ui-map {
+    background: var(--field);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 20px 0;
+  }
+  .ui-map-bar {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 14px;
+    font-size: 11px;
+    color: var(--dim);
+    display: flex; gap: 8px; align-items: center;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .dot.r { background: var(--red); }
+  .dot.a { background: var(--amber); }
+  .dot.g { background: var(--green); }
+  .ui-map pre {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1.55;
+    padding: 16px 20px;
+    color: var(--text);
+    overflow-x: auto;
+    tab-size: 2;
+  }
+  .hl-accent { color: var(--accent); font-weight: 700; }
+  .hl-green  { color: var(--green);  font-weight: 700; }
+  .hl-amber  { color: var(--amber);  }
+  .hl-red    { color: var(--red);    }
+  .hl-dim    { color: var(--dim);    }
+  .hl-purple { color: var(--purple); }
+  .hl-teal   { color: var(--teal);   }
+
+  /* ── PIPELINE DIAGRAM ──────────────────────────────────── */
+  .pipeline {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin: 20px 0;
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .pipe-chip {
+    background: var(--field);
+    border: 1.5px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    text-align: center;
+    min-width: 110px;
+  }
+  .pipe-chip.active { background: #1e2a3f; border-color: var(--accent);
+                      color: var(--accent); }
+  .pipe-chip.done   { background: #1a2e24; border-color: var(--green);
+                      color: var(--green); }
+  .pipe-chip.idle   { opacity: 0.4; }
+  .pipe-arrow {
+    color: var(--dim);
+    font-size: 16px;
+    padding: 0 4px;
+    flex-shrink: 0;
+  }
+
+  /* ── STATUS CHIPS ──────────────────────────────────────── */
+  .chip {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 700;
+    vertical-align: middle;
+  }
+  .chip.pending { background: #2a2d34; color: var(--dim); }
+  .chip.running { background: #1e2a3f; color: var(--accent); }
+  .chip.done    { background: #1a2e24; color: var(--green); }
+  .chip.failed  { background: #2e1e1e; color: var(--red); }
+  .chip.skip    { background: #2a2a1e; color: var(--amber); }
+
+  /* ── TABLES ─────────────────────────────────────────────── */
+  .ref-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 13px;
+  }
+  .ref-table th {
+    background: var(--panel);
+    color: var(--dim);
+    font-weight: 700;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    padding: 9px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .ref-table td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    vertical-align: top;
+  }
+  .ref-table tr:last-child td { border-bottom: none; }
+  .ref-table tr:hover td { background: var(--hover); }
+  .ref-table .key {
+    font-family: var(--mono);
+    background: var(--field);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 7px;
+    font-size: 11.5px;
+    color: var(--text);
+    white-space: nowrap;
+  }
+
+  /* ── SECTION CARDS ─────────────────────────────────────── */
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .card {
+    background: var(--field);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    cursor: default;
+    transition: border-color .15s;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card .icon { font-size: 20px; margin-bottom: 8px; }
+  .card .title { font-size: 13px; font-weight: 700; color: var(--text);
+                 margin-bottom: 4px; }
+  .card .desc  { font-size: 11.5px; color: var(--dim); margin: 0; }
+
+  /* ── CODE BLOCKS ─────────────────────────────────────────── */
+  code {
+    font-family: var(--mono);
+    background: var(--field);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 12px;
+    color: var(--accent);
+  }
+  pre.cmd {
+    background: #111214;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--green);
+    margin: 14px 0;
+    overflow-x: auto;
+  }
+  pre.cmd .comment { color: var(--dim); }
+
+  /* ── SECTION ANCHOR TARGET ─────────────────────────────── */
+  section { scroll-margin-top: 24px; }
+
+  /* ── FOOTER ──────────────────────────────────────────────── */
+  .footer {
+    margin-top: 60px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--dim);
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+<!-- ═══════════════════════ SIDEBAR ═══════════════════════ -->
+<nav>
+  <div class="nav-logo">
+    <div class="wordmark">⚡ Slipstream</div>
+    <div class="tagline">CFD Study Manager v0.8</div>
+  </div>
+
+  <div class="section-head">Getting started</div>
+  <a href="#overview" class="active">Overview</a>
+  <a href="#launch">Launch the app</a>
+  <a href="#layout">Interface layout</a>
+
+  <div class="section-head">Core workflow</div>
+  <a href="#mock">1 · Mock run (no ANSYS)</a>
+  <a href="#project">2 · Open your project</a>
+  <a href="#queue">3 · Queue & controls</a>
+  <a href="#monitor">4 · Live monitor</a>
+  <a href="#results">5 · Results & charts</a>
+  <a href="#images">6 · Images & artifacts</a>
+
+  <div class="section-head">Schedule</div>
+  <a href="#edit">Edit experiments</a>
+  <a href="#add">Add experiments</a>
+  <a href="#resume">Resume & retry</a>
+
+  <div class="section-head">Reference</div>
+  <a href="#panels">Panel guide</a>
+  <a href="#shortcuts">Keyboard shortcuts</a>
+  <a href="#troubleshoot">Troubleshooting</a>
+</nav>
+
+<!-- ═══════════════════════ CONTENT ═══════════════════════ -->
+<main>
+
+  <!-- ─── HERO ──────────────────────────────────────── -->
+  <div class="hero">
+    <div>
+      <div class="hero-badge">v0.8 GUIDE</div>
+    </div>
+    <div>
+      <p>
+        <strong>Slipstream</strong> wraps the <code>cfdauto</code> CFD automation
+        engine in a professional desktop interface. You define a parametric study
+        in Excel, press <strong>Run All</strong>, and watch every simulation from
+        geometry update to convergence — live, in one window.
+      </p>
+    </div>
+  </div>
+
+  <!-- ─── OVERVIEW ─────────────────────────────────── -->
+  <section id="overview">
+    <h2>Overview</h2>
+    <p>Everything you could previously only see in the terminal is now visualised in real time. The <strong>engine is identical</strong> — same Workbench journal, same PyFluent pipeline, same Excel resume ledger — the GUI simply makes it observable and interactive.</p>
+
+    <div class="card-grid">
+      <div class="card">
+        <div class="icon">📋</div>
+        <div class="title">Dashboard</div>
+        <div class="desc">Status cards, overall progress, live L/D chart, recent events</div>
+      </div>
+      <div class="card">
+        <div class="icon">▶</div>
+        <div class="title">Queue</div>
+        <div class="desc">Your schedule as a live colour-coded table with run controls</div>
+      </div>
+      <div class="card">
+        <div class="icon">📡</div>
+        <div class="title">Monitor</div>
+        <div class="desc">Pipeline stages, progress bar, live CL/CD convergence plot</div>
+      </div>
+      <div class="card">
+        <div class="icon">📊</div>
+        <div class="title">Charts</div>
+        <div class="desc">Interactive polars, drag charts, L/D maps — hover to identify</div>
+      </div>
+      <div class="card">
+        <div class="icon">🖼</div>
+        <div class="title">Images</div>
+        <div class="desc">Browse and zoom geometry, mesh, pressure and velocity contours</div>
+      </div>
+      <div class="card">
+        <div class="icon">📈</div>
+        <div class="title">Statistics</div>
+        <div class="desc">Mean, std, min/max for every metric — best case highlighted</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── LAUNCH ───────────────────────────────────── -->
+  <section id="launch">
+    <h2>Launch the app</h2>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div>
+          <h4>Open PowerShell in VS Code</h4>
+          <p>Press <code>Ctrl+`</code> in VS Code, or open a new terminal window.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div>
+          <h4>Navigate and activate the virtual environment</h4>
+          <pre class="cmd">cd C:\Users\tejas\Desktop\CFD_Auto
+..\venv\Scripts\activate    <span class="comment"># (venv) prefix appears</span>
+cd slipstream</pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div>
+          <h4>Start Slipstream</h4>
+          <pre class="cmd">python main.py gui</pre>
+          <p>The terminal line <code>Project loaded: config\config.yaml</code> appears and the window opens. The terminal stays "frozen" — that is normal, the Qt event loop is running.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout tip">
+      <div class="label">💡 Tip</div>
+      <p>To close the app cleanly, press <strong>Ctrl+Q</strong> or use File → Exit. If a batch is running, Slipstream will ask you to confirm — the current case always finishes before stopping.</p>
+    </div>
+  </section>
+
+  <!-- ─── LAYOUT ───────────────────────────────────── -->
+  <section id="layout">
+    <h2>Interface layout</h2>
+
+    <div class="ui-map">
+      <div class="ui-map-bar">
+        <span class="dot r"></span><span class="dot a"></span><span class="dot g"></span>
+        &nbsp; Slipstream — CFD Study Manager v0.8
+      </div>
+      <pre>
+<span class="hl-dim">┌ Menu: File · Run · View · Help ──────────────────────────────────────────┐</span>
+<span class="hl-dim">├</span> <span class="hl-accent">Open Project</span>  <span class="hl-accent">Reload</span>  │  <span class="hl-green">▶ Run All</span>  <span class="hl-red">⏹ Stop after case</span>  <span class="hl-amber">☐ Mock mode</span> <span class="hl-dim">─┤</span>
+<span class="hl-dim">├──────────────┬─────────────────────────────────────────┬────────────────┤</span>
+│ <span class="hl-accent">EXPLORER</span>     │  <span class="hl-accent">Dashboard</span>  Results  Charts  Images      │ <span class="hl-accent">QUEUE</span>           │
+│ Project      │                                         │ Run All RunSel │
+│ ⚙ config     │   <span class="hl-accent">Central workspace</span> (see tabs below)    │ ⏹ Stop ☐Retry  │
+│ ▤ schedule   │                                         │ Row AOA V  St  │
+│ ⬢ baseline   │                                         ├────────────────┤
+│ Runs         │                                         │ <span class="hl-accent">MONITOR</span>         │
+│  📁 r002…    │                                         │ r003 · 2/8     │
+│    *.png     │                                         │ [Stage chips]  │
+│  [Refresh]   │                                         │ ████████░ 74%  │
+│              │                                         │ CL/CD live plot│
+<span class="hl-dim">├──────────────┴────────── LOG ▸ Statistics (tabbed) ────┴────────────────┤</span>
+│ <span class="hl-dim">11:39:52 INFO  Case 2/8 started…</span>                                        │
+<span class="hl-dim">├ engine: running · 6 pending · 2 done · v0.8.0 ─────────────────────────┤</span>
+      </pre>
+    </div>
+
+    <h3>Dockable panels</h3>
+    <p>Every panel (Explorer, Queue, Monitor, Log, Statistics) can be <strong>dragged to a new position</strong>, tabbed, or closed from the <strong>View</strong> menu. Use <strong>View → Reset layout</strong> to restore the default arrangement.</p>
+  </section>
+
+  <!-- ─── MOCK RUN ─────────────────────────────────── -->
+  <section id="mock">
+    <h2>1 · Mock run — test without ANSYS</h2>
+    <p>Before running real simulations, verify the whole GUI works using the built-in mock engine. It fabricates plausible aerodynamics and generates demo contour images in about 5 seconds.</p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div>
+          <h4>Enable Mock mode</h4>
+          <p>Click <strong>Mock mode (no ANSYS)</strong> in the toolbar. It highlights when active. Alternatively: <strong>Run → Mock mode</strong> in the menu.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div>
+          <h4>Click ▶ Run All (or press F5)</h4>
+          <p>The Queue shows all rows turn <span class="chip running">RUNNING</span> then <span class="chip done">DONE</span>. Switch to the <strong>Monitor</strong> tab (bottom right) to watch the pipeline.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div>
+          <h4>Watch the pipeline stages light up</h4>
+          <div class="pipeline">
+            <div class="pipe-chip done">Geometry+Mesh</div>
+            <div class="pipe-arrow">→</div>
+            <div class="pipe-chip done">Fluent</div>
+            <div class="pipe-arrow">→</div>
+            <div class="pipe-chip done">Setup</div>
+            <div class="pipe-arrow">→</div>
+            <div class="pipe-chip active">Solve</div>
+            <div class="pipe-arrow">→</div>
+            <div class="pipe-chip idle">Extract</div>
+          </div>
+          <p>Each chip turns <strong style="color:var(--accent)">blue</strong> when active and <strong style="color:var(--green)">green</strong> when complete. A cached mesh shows as <strong style="color:var(--teal)">teal</strong> (Workbench was skipped).</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num green">✓</div>
+        <div>
+          <h4>Explore the results</h4>
+          <p>All 8 rows are <span class="chip done">DONE</span> with CL/CD values. Go to <strong>Charts → CL vs AOA</strong>, <strong>Images tab</strong>, and the <strong>Statistics dock</strong> to see the full output.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <div class="label">⚠ Important</div>
+      <p>After a mock run, <strong>right-click all rows → Re-queue</strong> and <strong>untick Mock mode</strong> before launching a real ANSYS run. Otherwise nothing will run ("Nothing to do").</p>
+    </div>
+  </section>
+
+  <!-- ─── OPEN PROJECT ─────────────────────────────── -->
+  <section id="project">
+    <h2>2 · Open your ANSYS project</h2>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div>
+          <h4>File → Open Project (Ctrl+O)</h4>
+          <p>Navigate to <code>C:\Users\tejas\Desktop\CFD_Auto\slipstream\config\config.yaml</code> and click Open.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div>
+          <h4>Verify the project loaded</h4>
+          <p>The Dashboard title shows your project path, the Queue populates with rows, and the status bar shows <strong>"N experiments"</strong>. The Explorer dock (left) shows your schedule and baseline case.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div>
+          <h4>Before running — close these</h4>
+          <p>✗ <strong>Workbench GUI</strong> — two instances of Workbench on the same project causes a crash<br>
+             ✗ <strong>Excel</strong> with experiments.xlsx open — the engine needs write access</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── QUEUE ─────────────────────────────────────── -->
+  <section id="queue">
+    <h2>3 · Queue panel and run controls</h2>
+
+    <div class="ui-map">
+      <div class="ui-map-bar">
+        <span class="dot r"></span><span class="dot a"></span><span class="dot g"></span>
+        &nbsp; Queue dock
+      </div>
+      <pre>
+  <span class="hl-green">▶ Run All</span>   <span class="hl-accent">Run Selected</span>   <span class="hl-red">⏹ Stop after case</span>  <span class="hl-dim">☐ Retry FAILED</span>  Max: <span class="hl-accent">all</span>
+
+  Row  AOA   Velocity  <span class="hl-dim">Status</span>    CL        CD       L/D    It
+  ─────────────────────────────────────────────────────────────
+   2    0      20     <span class="hl-green">DONE</span>     0.1969   0.0183   10.78   400
+   3    0      30     <span class="hl-red">FAILED</span>    nan      nan      nan      0
+   4    4      20     <span class="hl-green">DONE</span>    -0.0146  0.0129   -1.13   400
+   5    4      30     <span class="hl-accent">RUNNING</span>   …        …        …       …
+   6    8      20     <span class="hl-dim">PENDING</span>
+   7    8      30     <span class="hl-dim">PENDING</span>
+   8   12      20     <span class="hl-dim">SKIP</span>
+   9   12      30     <span class="hl-dim">PENDING</span>
+      </pre>
+    </div>
+
+    <h3>Run buttons</h3>
+    <table class="ref-table">
+      <tr><th>Button</th><th>What it does</th></tr>
+      <tr><td><strong>▶ Run All</strong></td><td>Runs every PENDING row in order. DONE and SKIP rows are ignored.</td></tr>
+      <tr><td><strong>Run Selected</strong></td><td>Select rows with click/Ctrl+click, then press this to run only those rows.</td></tr>
+      <tr><td><strong>⏹ Stop after case</strong></td><td>Graceful stop — finishes the currently running case then halts. Re-run to resume; DONE rows are skipped automatically.</td></tr>
+      <tr><td><strong>☑ Retry FAILED</strong></td><td>When ticked, FAILED rows are added back to the queue when you click Run All.</td></tr>
+      <tr><td><strong>Max cases</strong></td><td>Set to 1 for a single-case smoke test. "all" (value 0) means no limit.</td></tr>
+    </table>
+
+    <h3>Right-click context menu</h3>
+    <table class="ref-table">
+      <tr><th>Action</th><th>When to use</th></tr>
+      <tr><td><strong>Toggle SKIP</strong></td><td>Exclude a row from the batch without deleting it. Toggle again to re-include.</td></tr>
+      <tr><td><strong>Re-queue (clear status)</strong></td><td>Clears DONE or FAILED status so the row runs again. Use after fixing a geometry issue.</td></tr>
+    </table>
+  </section>
+
+  <!-- ─── MONITOR ───────────────────────────────────── -->
+  <section id="monitor">
+    <h2>4 · Live monitor</h2>
+    <p>Click the <strong>Monitor</strong> tab in the right dock to watch the active case. Every stage updates in real time as the engine progresses.</p>
+
+    <div class="ui-map">
+      <div class="ui-map-bar">
+        <span class="dot r"></span><span class="dot a"></span><span class="dot g"></span>
+        &nbsp; Monitor dock — case 3/8
+      </div>
+      <pre>
+  <span class="hl-accent">Case 3/8 — r005_aoa4_v30</span>                    <span class="hl-dim">AOA 4°  V 30 m/s</span>
+
+  <span class="hl-green">[✓ Geo+Mesh]</span>→<span class="hl-green">[✓ Fluent]</span>→<span class="hl-green">[✓ Setup]</span>→<span class="hl-green">[✓ Init]</span>→<span class="hl-accent">[▶ Solve]</span>→<span class="hl-dim">[  Extract  ]</span>
+
+  <span class="hl-accent">████████████████████░░░░░░░░░</span>  74%
+
+  iter 742   CL= 0.48312   CD= 0.02184
+
+  <span class="hl-dim">┌───────────────────────── CL ─────── CD ─────────────────────┐</span>
+  <span class="hl-dim">│</span>  <span class="hl-accent">CL</span>   <span class="hl-accent">╭───────────────────────</span>                               <span class="hl-dim">│</span>
+  <span class="hl-dim">│</span>  <span class="hl-amber">CD</span>      <span class="hl-amber">╭─────────────────────</span>                             <span class="hl-dim">│</span>
+  <span class="hl-dim">└──────┬──────┬──────┬──────┬──────┬───── iteration ──────────┘</span>
+        100   200   300   400   500   742
+      </pre>
+    </div>
+
+    <h3>Reading the monitor</h3>
+    <table class="ref-table">
+      <tr><th>Element</th><th>Meaning</th></tr>
+      <tr><td>Stage chips</td><td><span style="color:var(--accent)">Blue</span> = currently active · <span style="color:var(--green)">Green</span> = done · <span style="color:var(--teal)">Teal</span> = cached (mesh reused, WB skipped) · <span style="color:var(--red)">Red</span> = failed</td></tr>
+      <tr><td>Progress bar</td><td>Weighted: Geo+Mesh = 0–25%, Solve = 25–95%, Extract = 95–100%</td></tr>
+      <tr><td>iter N · CL= · CD=</td><td>Live values from the current chunk. Updated every ~100 iterations.</td></tr>
+      <tr><td>CL/CD plot</td><td>Convergence history. Flat tail = the solver has converged. The engine declares convergence when both CL and CD are flat within tolerance.</td></tr>
+    </table>
+
+    <div class="callout tip">
+      <div class="label">💡 Tip — what "converged" means</div>
+      <p>The engine uses <strong>force flatness</strong>, not residuals. It checks that CL and CD change by less than a threshold over the last 50 samples. You'll see <code>Converged at iteration N</code> in the Log when it stops early — this is correct behaviour.</p>
+    </div>
+  </section>
+
+  <!-- ─── RESULTS ───────────────────────────────────── -->
+  <section id="results">
+    <h2>5 · Results tab and charts</h2>
+
+    <h3>Results table</h3>
+    <p>Click the <strong>Results</strong> tab to see the full dataset. Click any column header to sort. Click a row to select that case (the Monitor and Images panels update). Click <strong>Export CSV</strong> to save the entire table.</p>
+
+    <h3>Charts tab — interactive polars</h3>
+    <p>Three built-in presets cover the most common aero plots:</p>
+
+    <table class="ref-table">
+      <tr><th>Preset</th><th>X</th><th>Y</th><th>Color by</th><th>What it shows</th></tr>
+      <tr><td><strong>CL vs AOA</strong></td><td>AOA</td><td>CL</td><td>Velocity</td><td>Lift curve slope — should rise with AOA up to stall</td></tr>
+      <tr><td><strong>Drag polar</strong></td><td>CD</td><td>CL</td><td>AOA</td><td>Classic polar — lower-left = efficient</td></tr>
+      <tr><td><strong>L/D vs V</strong></td><td>Velocity</td><td>L/D</td><td>AOA</td><td>Aerodynamic efficiency by speed</td></tr>
+    </table>
+
+    <p>You can also set any <strong>X / Y / Color by</strong> combination manually using the dropdowns. <strong>Hover over any point</strong> to see the case ID and exact values. <strong>Export PNG</strong> saves a high-resolution chart image.</p>
+
+    <div class="callout warn">
+      <div class="label">⚠ Current note — inverted AOA</div>
+      <p>Your current study shows CL <em>decreasing</em> with AOA, and negative L/D. This is a <strong>geometry rotation sign issue</strong> in DesignModeler (positive P1 rotates nose-down instead of nose-up). The charts and data are correct — the sign convention just needs fixing. Open the Rotate body operation in DM, flip the axis direction, re-export <code>baseline.cas.h5</code>, and re-run.</p>
+    </div>
+
+    <h3>Statistics dock (bottom)</h3>
+    <p>The Statistics tab at the bottom shows count/mean/std/min/max for every output metric across all DONE cases, plus a headline <strong>Best L/D</strong> case. Visible alongside the Log in a tabbed dock — click <strong>Statistics</strong> to bring it forward.</p>
+  </section>
+
+  <!-- ─── IMAGES ───────────────────────────────────── -->
+  <section id="images">
+    <h2>6 · Images and artifacts</h2>
+    <p>The <strong>Images</strong> tab lets you browse every image file in a case's artifact folder — geometry screenshots, mesh previews, pressure and velocity contours.</p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div>
+          <h4>Select a case</h4>
+          <p>Use the <strong>Case dropdown</strong> at the top to pick any case, or click a row in the Queue/Results table — the dropdown updates automatically.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div>
+          <h4>Browse thumbnails</h4>
+          <p>Thumbnails appear on the left: geometry, mesh, pressure contour, velocity contour. Click any thumbnail to load the full image.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div>
+          <h4>Zoom and pan</h4>
+          <p><strong>Scroll wheel</strong> to zoom in/out. <strong>Drag</strong> to pan. Press <strong>Fit</strong> to reset the view.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div>
+          <h4>Open the folder</h4>
+          <p>Click <strong>Open folder</strong> to see all case artifacts in Windows Explorer: <code>transcript.trn</code>, <code>cfdauto_history.out</code>, <code>result.json</code>, <code>case.log</code>, and any exported images.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout tip">
+      <div class="label">💡 Enabling real contour images</div>
+      <p>To capture actual pressure/velocity contours from Fluent, open <code>config\config.yaml</code> and set <code>fluent.capture_images: true</code>. This triggers an experimental step after convergence. If it fails for any reason, the case still completes normally.</p>
+    </div>
+  </section>
+
+  <!-- ─── EDIT ─────────────────────────────────────── -->
+  <section id="edit">
+    <h2>Edit experiments</h2>
+    <p>Click the <strong>Parameters</strong> tab in the right dock (next to Queue and Monitor). Click any row in the Queue first to load it.</p>
+
+    <div class="callout warn">
+      <div class="label">⚠ Lock rule</div>
+      <p>Inputs can only be edited on rows that have <strong>not produced results yet</strong> (status PENDING, FAILED, or SKIP). Rows with status DONE show their values as read-only to protect provenance.</p>
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div>
+          <h4>Select a pending row in the Queue</h4>
+          <p>Click the row. The Parameters panel loads its current AOA and Velocity values.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div>
+          <h4>Change the values</h4>
+          <p>Adjust the <strong>AOA [deg]</strong> and <strong>Velocity [m/s]</strong> spinboxes (and any WBP parameter columns if present).</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div>
+          <h4>Click Apply changes</h4>
+          <p>The workbook is saved atomically. The Queue table updates immediately.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── ADD ──────────────────────────────────────── -->
+  <section id="add">
+    <h2>Add experiments</h2>
+    <p>The <strong>Add experiment</strong> section in the Parameters panel adds new rows to the schedule without opening Excel.</p>
+
+    <table class="ref-table">
+      <tr><th>Button</th><th>What it does</th></tr>
+      <tr><td><strong>＋ Add row</strong></td><td>Appends a new row with the AOA and Velocity values you've set in the spinboxes. Status is PENDING.</td></tr>
+      <tr><td><strong>Duplicate selected</strong></td><td>Copies the currently selected row (same AOA, velocity, and any extra parameters) as a new PENDING row.</td></tr>
+    </table>
+  </section>
+
+  <!-- ─── RESUME ───────────────────────────────────── -->
+  <section id="resume">
+    <h2>Resume and retry</h2>
+
+    <h3>Resume after a stop or crash</h3>
+    <p>Slipstream is always resume-safe. Close the window, kill the terminal, or press Stop — the <code>experiments.xlsx</code> Status column records exactly where you are. Re-open the app and press <strong>▶ Run All</strong>: DONE rows are skipped, the batch continues from the first PENDING row.</p>
+
+    <div class="callout tip">
+      <div class="label">💡 Tip</div>
+      <p>Any row left as <span class="chip running">RUNNING</span> by a crash is automatically re-queued on the next run. You never lose progress.</p>
+    </div>
+
+    <h3>Retry failed rows</h3>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div><h4>Tick ☑ Retry FAILED in the Queue</h4></div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div><h4>Click ▶ Run All</h4><p>Failed rows are added back to the queue and re-executed.</p></div>
+      </div>
+    </div>
+
+    <h3>Re-run everything from scratch</h3>
+    <p>Select all rows in the Queue (<code>Ctrl+A</code>), right-click → <strong>Re-queue (clear status)</strong>, then click <strong>▶ Run All</strong>.</p>
+
+    <p>Or regenerate a clean schedule from the terminal:</p>
+    <pre class="cmd">python main.py init-template experiments.xlsx</pre>
+    <p>Then click <strong>Reload Project</strong> in the toolbar.</p>
+  </section>
+
+  <!-- ─── PANEL GUIDE ──────────────────────────────── -->
+  <section id="panels">
+    <h2>Panel reference guide</h2>
+
+    <table class="ref-table">
+      <tr><th>Panel</th><th>Location</th><th>Purpose</th></tr>
+      <tr><td><strong>Dashboard</strong></td><td>Central tab (default)</td><td>Status cards, overall progress, L/D chart, recent events, pipeline mirror</td></tr>
+      <tr><td><strong>Results</strong></td><td>Central tab</td><td>Full sortable dataset table · Export CSV</td></tr>
+      <tr><td><strong>Charts</strong></td><td>Central tab</td><td>X/Y/colour interactive plots · presets · hover · Export PNG</td></tr>
+      <tr><td><strong>Images</strong></td><td>Central tab</td><td>Browse and zoom case artifact images</td></tr>
+      <tr><td><strong>Explorer</strong></td><td>Left dock</td><td>Project tree: config, schedule, baseline case, all case folders</td></tr>
+      <tr><td><strong>Queue</strong></td><td>Right dock (top)</td><td>Schedule table + run controls + right-click actions</td></tr>
+      <tr><td><strong>Parameters</strong></td><td>Right dock (tab)</td><td>Edit inputs for selected row · add/duplicate rows</td></tr>
+      <tr><td><strong>Monitor</strong></td><td>Right dock (bottom)</td><td>Live pipeline stages + progress + CL/CD convergence plot</td></tr>
+      <tr><td><strong>Log</strong></td><td>Bottom dock (tab)</td><td>Full engine log stream — same as the old terminal output</td></tr>
+      <tr><td><strong>Statistics</strong></td><td>Bottom dock (tab)</td><td>Descriptive stats for all DONE cases + best L/D headline</td></tr>
+    </table>
+
+    <div class="callout tip">
+      <div class="label">💡 Tip — rearranging panels</div>
+      <p>Drag any dock by its title bar to move it. Panels can be tabbed together by dropping one on top of another. Use <strong>View → Reset layout</strong> to restore the default positions.</p>
+    </div>
+  </section>
+
+  <!-- ─── SHORTCUTS ─────────────────────────────────── -->
+  <section id="shortcuts">
+    <h2>Keyboard shortcuts</h2>
+
+    <table class="ref-table">
+      <tr><th>Shortcut</th><th>Action</th></tr>
+      <tr><td><span class="key">F5</span></td><td>Run All (start a batch)</td></tr>
+      <tr><td><span class="key">Shift+F5</span></td><td>Stop after current case</td></tr>
+      <tr><td><span class="key">Ctrl+O</span></td><td>Open Project</td></tr>
+      <tr><td><span class="key">Ctrl+R</span></td><td>Reload Project (re-reads config + workbook)</td></tr>
+      <tr><td><span class="key">Ctrl+Q</span></td><td>Exit (asks if a batch is running)</td></tr>
+      <tr><td><span class="key">Ctrl+A</span></td><td>Select all rows in Queue / Results table</td></tr>
+      <tr><td><span class="key">Scroll wheel</span></td><td>Zoom in/out in the Images viewer</td></tr>
+    </table>
+  </section>
+
+  <!-- ─── TROUBLESHOOT ──────────────────────────────── -->
+  <section id="troubleshoot">
+    <h2>Troubleshooting</h2>
+
+    <h3>Nothing to do — all rows say DONE</h3>
+    <p>The workbook already has results from a previous run. Right-click rows → <strong>Re-queue</strong>, or tick <strong>Retry FAILED</strong> if rows are FAILED.</p>
+
+    <h3>Window opened but charts/plots are blank</h3>
+    <p>Add <code>useOpenGL=False</code> to pyqtgraph config. Open <code>gui\theme.py</code>, find <code>pg.setConfigOptions(...)</code> and add the option, then restart.</p>
+
+    <h3>Run All does nothing (engine exits instantly)</h3>
+    <p>Check the <strong>Log</strong> panel — it will show the reason. Most common: ANSYS project file not found (wrong path in config.yaml), or Workbench GUI is open at the same time.</p>
+
+    <h3>Row stuck as RUNNING after a crash</h3>
+    <p>This is expected and handled automatically. Re-run the app and press <strong>▶ Run All</strong> — the RUNNING row is re-queued and starts fresh.</p>
+
+    <h3>Excel save fails / workbook locked</h3>
+    <p>Close <code>experiments.xlsx</code> in Excel. The engine retries 10 times (60 seconds) — if you close Excel during that window, the save succeeds.</p>
+
+    <h3>Workbench crashes (rc=3221225477)</h3>
+    <p>Close the Workbench GUI before running. Only one Workbench instance can have a project open at a time. Check the <code>runs\cases\&lt;id&gt;\wb_stdout.log</code> file for the actual error (visible in Explorer dock → double-click the file).</p>
+
+    <h3>CL is negative / L/D chart goes downward</h3>
+    <p>This is the rotation sign issue: the P1 parameter is rotating the wing nose-down for positive values. Fix: in DesignModeler, open the Rotate body operation and flip the rotation axis direction. Re-export <code>baseline.cas.h5</code> and re-run.</p>
+
+    <h3>Fluent crashes with "Abnormal Exit" / RPC handshake failure</h3>
+    <p>Usually an ANSYS Student license lockout after previous crashes. The Student license only allows 1 concurrent Fluent session — if a prior session didn't exit cleanly, its license tokens remain "stuck" for 30–60 minutes.</p>
+    <p><strong>Fix:</strong> Kill orphaned processes, wait 5 minutes, then retry:</p>
+    <pre class="cmd">Get-Process | Where-Object {$_.ProcessName -like "*fluent*"} | Stop-Process -Force
+Get-Process | Where-Object {$_.ProcessName -like "*fl_mpi*"} | Stop-Process -Force
+<span class="comment"># Wait 5 minutes for license server to release tokens</span>
+Remove-Item -Force runs\cfdauto.lock -ErrorAction SilentlyContinue
+python main.py run --retry-failed --config config/config.yaml</pre>
+
+    <h3>Mesh image shows only smooth surface (no grid lines visible)</h3>
+    <p>Fluent 26.1's mesh display API doesn't always set edge visibility properly through the settings tree. The latest <code>fluent_controller.py</code> uses TUI commands as a fallback to force edge display. If grid lines still don't appear:</p>
+    <p>1. Enable <code>save_case_data: true</code> in config, then open <code>final.cas.h5</code> in Fluent GUI for full 3D mesh inspection.</p>
+    <p>2. Inspect <code>runs\cases\&lt;id&gt;\case.log</code> for lines like <code>Could not capture mesh.png</code> — the log shows which graphics API path failed.</p>
+
+    <h3>Solver stalls at high AOA (CL/CD frozen for 1500 iterations)</h3>
+    <p>Steady-state RANS cannot resolve deep post-stall flow (typically past ±14° AOA). The solver "converges" numerically but the physics is unphysical due to massive vortex shedding that RANS artificially damps. <strong>Limit AOA range to ±12°</strong> for meaningful results. Beyond that requires LES/DES (not feasible on Student edition due to compute limits).</p>
+    <div class="callout warn">
+      <div class="label">⚠ Signs of a stalled solve</div>
+      <p>CL/CD values change by less than 0.001 across 500+ iterations, but residuals never drop below ~1e-3. The solver is stuck, not converged. Reduce <code>max_iterations</code> to 500 and set <code>accept_unconverged: true</code> to save time.</p>
+    </div>
+
+    <h3><code>compute() returned no value</code> warning</h3>
+    <p>Cosmetic warning on Fluent 26.1 — the <code>report_definitions.compute()</code> API returns an empty list on this version. Results are extracted from the history file correctly. The latest <code>fluent_controller.py</code> uses the history file first and eliminates this warning entirely.</p>
+
+    <h3>Images not appearing after real ANSYS runs</h3>
+    <p>Verify <code>capture_images: true</code> is set under the <code>fluent:</code> section in config (NOT under <code>ansys:</code>):</p>
+    <pre class="cmd">@"
+import yaml
+cfg = yaml.safe_load(open('config/config.yaml'))
+print('capture_images =', cfg['fluent'].get('capture_images', False))
+"@ | python</pre>
+    <p>Must print <code>capture_images = True</code>. If it shows <code>False</code>, the line is either missing or placed under the wrong YAML section.</p>
+
+    <h3>Mock mode doesn't activate (no orange banner)</h3>
+    <p>YAML is case-sensitive: use <code>mock: true</code> (lowercase), not <code>mock: True</code>. Also ensure the line is indented under <code>runtime:</code>, not at the top level. After changing the config, click <strong>Reload Project</strong> (Ctrl+R) or restart the app.</p>
+  </section>
+
+  <div class="footer">
+    Slipstream v0.8 · Apache-2.0 · Engine: cfdauto · GUI: PySide6 + pyqtgraph · No telemetry · No cloud required
+  </div>
+
+</main>
+</div>
+
+<script>
+  // Highlight the active nav link while scrolling
+  const sections = document.querySelectorAll('section[id]');
+  const links = document.querySelectorAll('nav a[href^="#"]');
+
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const active = document.querySelector(`nav a[href="#${e.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -75% 0px' });
+
+  sections.forEach(s => observer.observe(s));
+
+  // Smooth scroll
+  links.forEach(l => l.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelector(l.getAttribute('href'))
+            .scrollIntoView({ behavior: 'smooth' });
+  }));
+</script>
+</body>
+</html>

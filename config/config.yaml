@@ -1,0 +1,94 @@
+# =============================================================================
+# cfdauto configuration — wing AOA / velocity sweep automation
+# =============================================================================
+# Configured for:
+#   - ANSYS Student 2026 R1 (v261)
+#   - Working directory: C:\Users\tejas\Desktop\CFD_Auto
+# =============================================================================
+
+ansys:
+  version: "261"
+  awp_root: "C:/Program Files/ANSYS Inc/ANSYS Student/v261"
+  runwb2: "C:/Program Files/ANSYS Inc/ANSYS Student/v261/Framework/bin/Win64/RunWB2.exe"
+
+workbench:
+  project_file: "C:/Users/tejas/Desktop/CFD_Auto/wing_project/wing_study.wbpj"
+  system_name: "FFF"
+  aoa_parameter: "P1"
+  aoa_expression: "{value} [degree]"
+  update_geometry: true
+  refresh_setup: true
+  save_project: true
+  mesh_file_glob: ""        # auto-discover — code now handles MESH/, MECH/, Fluent/
+  timeout_s: 3600
+
+fluent:
+  baseline_case: "C:/Users/tejas/Desktop/CFD_Auto/wing_project/baseline.cas.h5"
+  dimension: 3
+  precision: "double"
+  processor_count: 4        # MAX 4 for ANSYS Student edition
+  product_version: "26.1.0"
+  ui_mode: "no_gui"
+  capture_images: true
+
+  inlet_zone: "inlet"
+  inlet_type: "velocity_inlet"
+  wall_zones: ["wing"]
+
+  aoa_method: "geometry"
+  base_flow_axis: "+x"
+  base_lift_axis: "+y"
+
+  reference:
+    density: 1.225
+    viscosity: 1.7894e-05
+    area: 1.0
+    length: 1.0
+    depth: 1.0
+    temperature: 288.16
+    pressure: 0.0
+  launch_timeout_s: 900
+
+solve:
+  max_iterations: 1600
+  check_interval: 200
+  min_iterations: 600
+  convergence_window: 50
+  cl_tolerance: 1.0e-3
+  cd_tolerance: 1.0e-4
+  initialization: "hybrid"
+  accept_unconverged: true
+  save_case_data: true
+  crosscheck_tolerance: 0.03
+
+excel:
+  file: "C:/Users/tejas/Desktop/CFD_Auto/wing_project/experiments.2.xlsx"
+  sheet: "Experiments"
+  header_row: 1
+  save_retries: 10
+  save_retry_wait_s: 6
+  columns:
+    aoa: "AOA_deg"
+    velocity: "Velocity_m_s"
+    status: "Status"
+    cl: "CL"
+    cd: "CD"
+    cl_cd: "CL/CD"
+    lift: "Lift_N"
+    drag: "Drag_N"
+    fl_fd: "FL/FD"
+    iterations: "Iterations"
+    converged: "Converged"
+    error: "Error"
+    started: "Started"
+    finished: "Finished"
+    duration: "Duration_min"
+    case_dir: "CaseDir"
+
+runtime:
+  work_dir: "runs"
+  retries_per_case: 0
+  stop_on_failure: false
+  reuse_mesh_per_geometry: true
+  rerun_stale_running: true
+  mock: false

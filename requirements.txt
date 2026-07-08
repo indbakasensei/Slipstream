@@ -1,0 +1,14 @@
+# cfdauto — Python 3.11+ recommended
+pandas>=2.0
+openpyxl>=3.1
+PyYAML>=6.0
+
+# PyFluent (gRPC control of the Fluent solver).
+# Pair with your Fluent install: any recent ansys-fluent-core release ships
+# generated settings for Fluent 2024R2 (242) through the current version.
+ansys-fluent-core>=0.30
+
+# Optional modern alternative backend for Workbench (documented in README;
+# the framework itself drives Workbench through RunWB2 batch journals and
+# needs nothing extra installed for that):
+# ansys-workbench-core>=0.5

@@ -1,0 +1,3 @@
+# Slipstream v0.8 desktop shell — install on top of requirements.txt
+PySide6-Essentials>=6.6     # LGPL Qt for Python (never PyQt6 — GPL)
+pyqtgraph>=0.13             # fast interactive/live plotting inside Qt
