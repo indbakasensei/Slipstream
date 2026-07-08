@@ -111,9 +111,20 @@ class WorkbenchController:
     # Internals
     # ------------------------------------------------------------------ #
     def _parameter_expressions(self, exp: Experiment) -> Dict[str, str]:
-        """Map WB parameter name -> expression string (with units)."""
+        """Map WB parameter name -> expression string (with units).
+
+        ``workbench.aoa_scale`` is applied here — the single place where the
+        Excel AOA convention is translated into the geometry's rotation
+        convention. With ``aoa_scale: -1.0`` an Excel value of +8 deg writes
+        -8 deg into the WB parameter, correcting an inverted rotation axis
+        without touching the geometry or the schedule.
+        """
+        scaled = exp.aoa_deg * self.wb.aoa_scale
+        if self.wb.aoa_scale != 1.0:
+            log.debug("AOA scale %.3g: Excel %.3g deg -> WB %.3g deg",
+                      self.wb.aoa_scale, exp.aoa_deg, scaled)
         params = {
-            self.wb.aoa_parameter: self.wb.aoa_expression.format(value=exp.aoa_deg)
+            self.wb.aoa_parameter: self.wb.aoa_expression.format(value=scaled)
         }
         # Extra design variables straight from `WBP:` Excel columns.  Values
         # are written unitless; append units in a custom column-name mapping

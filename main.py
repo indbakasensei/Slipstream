@@ -73,6 +73,11 @@ def build_parser() -> argparse.ArgumentParser:
     gui = sub.add_parser("gui", help="Launch the Slipstream desktop application")
     _add_common(gui)
 
+    doc = sub.add_parser("doctor",
+                         help="Diagnose the environment (paths, licences, "
+                              "locks, workbook, physics linter)")
+    _add_common(doc)
+
     tpl = sub.add_parser("init-template",
                          help="Create a fresh experiments.xlsx schedule template")
     tpl.add_argument("path", nargs="?", default="experiments.xlsx",
@@ -90,6 +95,8 @@ def cmd_run(args) -> int:
              args.config, cfg.fluent.aoa_method, cfg.runtime.mock)
 
     excel = ExcelManager(cfg.excel)
+    from cfdauto import linter as _linter
+    _findings = _linter.lint(cfg, excel.read_experiments())
 
     if args.dry_run:
         print(summarize_schedule(excel))
@@ -101,6 +108,8 @@ def cmd_run(args) -> int:
                   + (f"  extra={e.extra_wb_params}" if e.extra_wb_params else ""))
         if len(queue) > 25:
             print(f"  ... and {len(queue) - 25} more")
+        print()
+        _linter.report(_findings)
         # Real-run prerequisites are checked here too, so a dry run catches
         # missing baseline case / project file before an overnight launch.
         if not cfg.runtime.mock:
@@ -122,6 +131,7 @@ def cmd_run(args) -> int:
         print("\nDry run OK.")
         return 0
 
+    _linter.log_findings(_findings)
     wb, fluent = build_controllers(cfg)
     orch = Orchestrator(cfg, excel, wb, fluent)
     queued = len(excel.pending(retry_failed=args.retry_failed,
@@ -150,6 +160,11 @@ def cmd_wb_info(args) -> int:
     print("\nUse the system 'name' for workbench.system_name and the parameter "
           "'name' (or its display text) for workbench.aoa_parameter.")
     return 0
+
+
+def cmd_doctor(args) -> int:
+    from cfdauto.doctor import run_doctor
+    return run_doctor(args.config)
 
 
 def cmd_gui(args) -> int:
@@ -184,6 +199,8 @@ def main(argv=None) -> int:
             return cmd_wb_info(args)
         if args.command == "gui":
             return cmd_gui(args)
+        if args.command == "doctor":
+            return cmd_doctor(args)
         if args.command == "init-template":
             return cmd_init_template(args)
         return 2

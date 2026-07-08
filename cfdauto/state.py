@@ -85,9 +85,14 @@ class RunState:
     def _load_mesh_cache(self) -> Dict[str, str]:
         if self._mesh_cache_path.exists():
             try:
-                return json.loads(self._mesh_cache_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                log.warning("mesh_cache.json unreadable — starting a fresh cache.")
+                text = self._mesh_cache_path.read_text(encoding="utf-8-sig").strip()
+                data = json.loads(text) if text else {}
+                if not isinstance(data, dict):
+                    raise ValueError("cache root is not an object")
+                return data
+            except (json.JSONDecodeError, ValueError, OSError) as exc:
+                log.warning("mesh_cache.json unreadable (%s) — starting a "
+                            "fresh cache.", exc)
         return {}
 
     def _save_mesh_cache(self) -> None:

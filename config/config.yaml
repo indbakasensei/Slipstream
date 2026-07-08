@@ -2,7 +2,7 @@
 # cfdauto configuration — wing AOA / velocity sweep automation
 # =============================================================================
 # Configured for:
-#   - ANSYS Student 2026 R1 (v261)
+#   - ANSYS Student 2027 R1 (v271)
 #   - Working directory: C:\Users\tejas\Desktop\CFD_Auto
 # =============================================================================
 
@@ -13,61 +13,66 @@ ansys:
 
 workbench:
   project_file: "C:/Users/tejas/Desktop/CFD_Auto/wing_project/wing_study.wbpj"
-  system_name: "FFF"
-  aoa_parameter: "P1"
-  aoa_expression: "{value} [degree]"
-  update_geometry: true
-  refresh_setup: true
-  save_project: true
-  mesh_file_glob: ""        # auto-discover — code now handles MESH/, MECH/, Fluent/
-  timeout_s: 3600
+  system_name: "FFF"        # internal system name — find it with: python main.py wb-info
+  aoa_scale: -1.0
+  aoa_parameter: "P1"       # WB parameter name OR its display text (e.g. "AOA")
+  aoa_expression: "{value} [degree]"   # how the AOA value is written into WB
+  update_geometry: true     # update the Geometry cell before the Mesh cell
+  refresh_setup: true       # refresh the Fluent Setup cell → writes the transfer .msh
+  save_project: true        # save the .wbpj after each geometry update
+  mesh_file_glob: ""        # override mesh auto-discovery (usually not needed)
+  timeout_s: 3600           # hard cap for one geometry+mesh update (seconds)
 
 fluent:
+  # Export this ONCE from your tuned Fluent setup: File → Write → Case.
+  # It carries ALL physics (models, materials, BCs, solver controls).
   baseline_case: "C:/Users/tejas/Desktop/CFD_Auto/wing_project/baseline.cas.h5"
-  dimension: 3
+  dimension: 3              # 2 for a 2D airfoil section, 3 for a 3D wing
   precision: "double"
-  processor_count: 4        # MAX 4 for ANSYS Student edition
-  product_version: "26.1.0"
-  ui_mode: "no_gui"
-  capture_images: true
+  processor_count: 4        # MAX 4 for ANSYS Student edition!
+  product_version: "27.1.0" # pinned to your installed version
+  ui_mode: "no_gui"         # no_gui | hidden_gui | gui  (gui = debugging only)
 
-  inlet_zone: "inlet"
+  inlet_zone: "inlet"       # must match your Named Selection exactly
   inlet_type: "velocity_inlet"
-  wall_zones: ["wing"]
+  wall_zones: ["wing"]      # every wall zone whose forces count
 
+  # How AOA is realised:
+  #   geometry        → Workbench rotates the wing + remeshes
+  #   velocity_vector → wing/mesh fixed; inlet flow rotated instead
   aoa_method: "geometry"
-  base_flow_axis: "+x"
-  base_lift_axis: "+y"
+  base_flow_axis: "+x"      # freestream direction at AOA = 0
+  base_lift_axis: "+y"      # lift direction at AOA = 0
 
-  reference:
-    density: 1.225
-    viscosity: 1.7894e-05
-    area: 1.0
-    length: 1.0
-    depth: 1.0
-    temperature: 288.16
-    pressure: 0.0
-  launch_timeout_s: 900
+  reference:                # drives CL/CD normalisation — MUST match reality
+    density: 1.225          # kg/m³  (sea-level air)
+    viscosity: 1.7894e-05   # kg/(m·s)
+    area: 0.35        # your real planform area in m²
+    length: 0.4       # your real chord in m
+    depth: 1.0              # m   (2D cases only)
+    temperature: 288.16     # K
+    pressure: 0.0           # Pa gauge
+  launch_timeout_s: 600
 
 solve:
-  max_iterations: 1600
-  check_interval: 200
-  min_iterations: 600
-  convergence_window: 50
-  cl_tolerance: 1.0e-3
-  cd_tolerance: 1.0e-4
-  initialization: "hybrid"
-  accept_unconverged: true
-  save_case_data: true
-  crosscheck_tolerance: 0.03
+  max_iterations: 1500
+  check_interval: 100       # iterate in chunks of this size, then test convergence
+  min_iterations: 300       # never declare convergence before this many
+  convergence_window: 50    # trailing CL/CD samples examined for flatness
+  cl_tolerance: 1.0e-3      # max−min of CL over the window
+  cd_tolerance: 1.0e-4      # max−min of CD over the window
+  initialization: "hybrid"  # hybrid | standard
+  accept_unconverged: true  # write results anyway with Converged=NO
+  save_case_data: false     # archive final .cas.h5+.dat.h5 per case (disk-heavy)
+  crosscheck_tolerance: 0.03  # warn if CL·q·A vs Lift force disagree by more
 
 excel:
-  file: "C:/Users/tejas/Desktop/CFD_Auto/wing_project/experiments.2.xlsx"
+  file: "experiments.xlsx"
   sheet: "Experiments"
   header_row: 1
-  save_retries: 10
-  save_retry_wait_s: 6
-  columns:
+  save_retries: 10          # workbook open in Excel? retry this many times…
+  save_retry_wait_s: 6      # …waiting this long between attempts
+  columns:                  # rename freely to match your own sheet
     aoa: "AOA_deg"
     velocity: "Velocity_m_s"
     status: "Status"
@@ -86,9 +91,9 @@ excel:
     case_dir: "CaseDir"
 
 runtime:
-  work_dir: "runs"
-  retries_per_case: 0
-  stop_on_failure: false
-  reuse_mesh_per_geometry: true
-  rerun_stale_running: true
-  mock: false
+  work_dir: "runs"          # meshes, per-case artifacts, logs, lockfile
+  retries_per_case: 1       # extra attempts after a case's first failure
+  stop_on_failure: false    # true → abort the whole batch on the first failure
+  reuse_mesh_per_geometry: true  # same AOA at several velocities → mesh once
+  rerun_stale_running: true # rows left RUNNING by a crash are re-queued
+  mock: false               # true → no ANSYS, fabricated results (pipeline test)

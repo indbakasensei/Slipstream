@@ -81,6 +81,11 @@ class WorkbenchConfig:
     system_name: str = "FFF"             # internal system name (see `wb-info`)
     aoa_parameter: str = "P1"            # WB parameter name or display text
     aoa_expression: str = "{value} [degree]"  # how the value is written into WB
+    aoa_scale: float = 1.0               # multiplier applied to AOA before it
+                                         # is written to the WB parameter.
+                                         # Set to -1.0 when the DesignModeler
+                                         # rotation axis is inverted (positive
+                                         # Excel AOA should mean nose-up).
     update_geometry: bool = True
     refresh_setup: bool = True           # forces the Fluent .msh transfer file
     save_project: bool = True
