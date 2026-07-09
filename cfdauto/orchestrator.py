@@ -118,6 +118,14 @@ class Orchestrator:
         failures = 0
         stopped = False
         ran = 0
+        # v0.9 M2 hotfix: cascade detector. When Fluent's gRPC server refuses
+        # to come up on N consecutive cases it's almost always the ANSYS
+        # Student licence being stuck for 30-60 min after a crashed session.
+        # Blindly running the next 24 rows just piles more failures and
+        # wastes 30+ minutes of wall clock. We halt the batch, kill any
+        # orphaned Fluent processes, and tell the user what to do.
+        consecutive_launch_failures = 0
+        MAX_LAUNCH_FAILURES = 3
         try:
             for i, exp in enumerate(todo, start=1):
                 if should_stop is not None and should_stop():
@@ -132,11 +140,31 @@ class Orchestrator:
                               index=i, total=len(todo), aoa=exp.aoa_deg,
                               velocity=exp.velocity, extra=dict(exp.extra_wb_params))
                 ok = self._run_one(exp)
+                # _run_one recorded the error already; check the ledger to
+                # decide whether it was a Fluent-launch failure specifically.
+                launch_failed = (not ok) and self._last_error_was_fluent_launch(exp)
                 ran += 1
                 failures += 0 if ok else 1
                 if not ok and self.cfg.runtime.stop_on_failure:
                     log.error("stop_on_failure=true — aborting the batch.")
                     break
+                # Track consecutive Fluent-launch failures and halt on cascade.
+                if launch_failed:
+                    consecutive_launch_failures += 1
+                    if consecutive_launch_failures >= MAX_LAUNCH_FAILURES:
+                        log.error(
+                            "%d consecutive Fluent launch failures — halting "
+                            "the batch. This is almost always the ANSYS "
+                            "Student licence stuck after a crashed session. "
+                            "Kill any orphaned Fluent processes, wait 5-10 "
+                            "minutes for tokens to release, then re-run with "
+                            "--retry-failed to resume.",
+                            consecutive_launch_failures)
+                        _cleanup_orphaned_fluent()
+                        stopped = True
+                        break
+                elif ok:
+                    consecutive_launch_failures = 0     # reset on success
         finally:
             self.state.release_lock()
 
@@ -254,6 +282,45 @@ class Orchestrator:
         except ExcelWriteError:
             recovery = self.cfg.work_dir() / "recovery_results.csv"
             self.excel.dump_recovery_csv(recovery, exp, res, status)
+
+    def _last_error_was_fluent_launch(self, exp: Experiment) -> bool:
+        """Read the row's Error cell we just wrote — if it mentions Fluent
+        failing to launch, this was a licence/RPC issue, not a physics one."""
+        try:
+            row = self.excel.read_row_outputs(exp.row)
+            err = str(row.get("Error") or "").lower()
+            return ("fluent failed to launch" in err
+                    or "rpc" in err
+                    or "unavailable" in err
+                    or "connection refused" in err)
+        except Exception:
+            return False
+
+
+# --------------------------------------------------------------------------- #
+def _cleanup_orphaned_fluent() -> None:
+    """Kill any leftover Fluent/fl_mpi/cx processes on Windows.
+
+    Called after a launch-failure cascade so the next `--retry-failed` run
+    starts with a clean process table. Silent on non-Windows platforms.
+    """
+    import os
+    import subprocess
+    if os.name != "nt":
+        return
+    killed: list[str] = []
+    for name in ("fluent.exe", "fl_mpi.exe", "cx.exe", "cxhost.exe"):
+        try:
+            r = subprocess.run(["taskkill", "/F", "/IM", name],
+                               capture_output=True, text=True, timeout=15)
+            if r.returncode == 0:
+                killed.append(name)
+        except Exception:
+            pass
+    if killed:
+        log.info("Killed orphaned Fluent processes: %s", ", ".join(killed))
+    else:
+        log.info("No orphaned Fluent processes found.")
 
 
 # --------------------------------------------------------------------------- #

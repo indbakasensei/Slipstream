@@ -223,12 +223,44 @@ class FluentController:
         log.info("Launching Fluent (%sD, %s precision, %d cores, ui=%s)...",
                  self.fl.dimension, self.fl.precision,
                  self.fl.processor_count, self.fl.ui_mode)
+        # v0.9 hotfix: pre-launch cleanup. Orphaned Fluent/fl_mpi processes
+        # from a previous crashed session hold the ANSYS Student licence and
+        # keep new launches failing with "connection refused". Kill them
+        # quietly first, then pause briefly so the OS releases the sockets
+        # in TIME_WAIT and the licence server hears the release.
+        self._pre_launch_cleanup()
         try:
             solver = pyfluent.launch_fluent(**kwargs)
         except Exception as exc:
             raise FluentError(f"Fluent failed to launch: {exc}") from exc
         log.info("Fluent session up.")
         return solver
+
+    def _pre_launch_cleanup(self) -> None:
+        """Kill orphaned Fluent processes and wait briefly before launching.
+
+        This does NOT touch a healthy running Fluent — it only fires when the
+        previous case exited uncleanly and left something behind. Silent on
+        non-Windows systems (which don't have the same licence-lockout issue).
+        """
+        import os as _os
+        import subprocess as _sp
+        import time as _t
+        if _os.name != "nt":
+            return
+        killed = []
+        for name in ("fluent.exe", "fl_mpi.exe", "cx.exe", "cxhost.exe"):
+            try:
+                r = _sp.run(["taskkill", "/F", "/IM", name],
+                            capture_output=True, text=True, timeout=10)
+                if r.returncode == 0 and "SUCCESS" in r.stdout.upper():
+                    killed.append(name)
+            except Exception:
+                pass
+        if killed:
+            log.info("Pre-launch cleanup killed orphaned processes: %s",
+                     ", ".join(killed))
+            _t.sleep(3.0)  # let licence server release the token
 
     def _shutdown(self, solver) -> None:
         if solver is None:

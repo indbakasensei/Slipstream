@@ -61,9 +61,9 @@ fluent:
 
 # ─── Solver behaviour ─────────────────────────────────────────────────────────
 solve:
-  max_iterations: 500                                 # was 1500 - don't waste time on stalls
-  check_interval: 5                                 # iterate in 100-step chunks
-  min_iterations: 50
+  max_iterations: 1500                                 # was 1500 - don't waste time on stalls
+  check_interval: 300                                 # iterate in 100-step chunks
+  min_iterations: 500
   convergence_window: 50                              # trailing samples for flatness check
   cl_tolerance: 1.0e-3
   cd_tolerance: 1.0e-4
