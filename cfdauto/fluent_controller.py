@@ -52,6 +52,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from . import aero
 from .config import Config
 from .events import EventBus
+from .telemetry import TelemetryTap
 from .exceptions import (
     DivergedError,
     FluentError,
@@ -158,7 +159,8 @@ class FluentController:
             self._initialize(root)
             self._stage("initialize", "done")
             self._stage("solve")
-            iterations, converged = self._solve_until_converged(root, history_file)
+            iterations, converged = self._solve_until_converged(
+                root, history_file, case_dir=case_dir)
             res.iterations, res.converged = iterations, converged
 
             self._stage("extract")
@@ -245,6 +247,10 @@ class FluentController:
     # ------------------------------------------------------------------ #
     # Case / mesh
     # ------------------------------------------------------------------ #
+    def _current_transcript_path(self, case_dir: Path) -> Path:
+        """Where _start_transcript wrote the .trn — used by the telemetry tap."""
+        return case_dir / "transcript.trn"
+
     def _start_transcript(self, root, case_dir: Path) -> None:
         trn = (case_dir / "transcript.trn").resolve().as_posix()
         try:
@@ -469,7 +475,8 @@ class FluentController:
             else:
                 raise FluentError(f"Initialisation failed: {exc}") from exc
 
-    def _solve_until_converged(self, root, history_file: Path) -> tuple[int, bool]:
+    def _solve_until_converged(self, root, history_file: Path,
+                                case_dir: Path = None) -> tuple[int, bool]:
         """Iterate in chunks; declare convergence when both CL and CD are flat.
 
         Criterion: over the trailing ``convergence_window`` samples,
@@ -485,6 +492,37 @@ class FluentController:
                  "(tol CL %.1e / CD %.1e)...",
                  s.check_interval, s.max_iterations, s.convergence_window,
                  s.cl_tolerance, s.cd_tolerance)
+
+        # v0.9 M2: telemetry tap streams per-iteration CL/CD + residuals.
+        tap = None
+        if case_dir is not None:
+            try:
+                tap = TelemetryTap(
+                    history_file=history_file,
+                    transcript_file=self._current_transcript_path(case_dir),
+                    emit=self._emit,
+                    max_it=s.max_iterations,
+                    poll_hz=5.0,
+                )
+                tap.start()
+            except Exception as exc:
+                log.debug("Telemetry tap could not start (%s) — falling back "
+                          "to chunk-only progress.", exc)
+                tap = None
+
+        try:
+            solve_return = self._solve_loop(root, run, s, history_file, done)
+            return solve_return
+        finally:
+            if tap is not None:
+                try:
+                    tap.stop(drain=True)
+                except Exception:
+                    log.debug("Telemetry tap stop failed — ignored.",
+                              exc_info=True)
+
+    def _solve_loop(self, root, run, s, history_file: Path,
+                    done: int) -> tuple[int, bool]:
         while done < s.max_iterations:
             chunk = min(s.check_interval, s.max_iterations - done)
             t0 = time.monotonic()

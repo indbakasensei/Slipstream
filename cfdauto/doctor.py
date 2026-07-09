@@ -104,6 +104,43 @@ def _lock_check(cfg: Config) -> Tuple[str, str]:
                   "automatically on the next run")
 
 
+def _version_consistency(cfg: Config) -> Tuple[str, str]:
+    """ansys.version ('261') must agree with fluent.product_version ('26.1.0')
+    or PyFluent will look up the wrong AWP_ROOT<ver> env var at launch."""
+    v = cfg.ansys.version.strip()
+    pv = (cfg.fluent.product_version or "").strip()
+    if not pv:
+        return WARN, (f"fluent.product_version is empty — PyFluent will guess. "
+                      f"Set it to match ansys.version={v!r} (e.g. '26.1.0').")
+    # Extract the first two digits from product_version ('26.1.0' → '261')
+    digits = "".join(c for c in pv if c.isdigit())
+    canon = digits[:3] if len(digits) >= 3 else digits
+    if canon != v:
+        return FAIL, (f"ansys.version={v!r} but fluent.product_version={pv!r} "
+                      f"(implies v{canon}). Fluent will try AWP_ROOT{canon} "
+                      f"instead of AWP_ROOT{v} and fail to launch.")
+    return PASS, f"ansys v{v}  ⇄  fluent {pv}  (consistent)"
+
+
+def _awp_env_check(cfg: Config) -> Tuple[str, str]:
+    """The AWP_ROOT<version> environment variable PyFluent will look up."""
+    v = cfg.ansys.version.strip()
+    key = f"AWP_ROOT{v}"
+    val = os.environ.get(key)
+    if val:
+        p = Path(val)
+        if p.exists():
+            return PASS, f"{key}={val}"
+        return WARN, f"{key}={val}  (path does not exist)"
+    # PyFluent falls back to cfg.ansys.awp_root here, so a missing env var
+    # is only a problem when the config's awp_root is empty too.
+    if not cfg.ansys.awp_root:
+        return FAIL, (f"{key} not set AND ansys.awp_root is empty — Fluent "
+                      "will not know where ANSYS lives.")
+    return WARN, (f"{key} not set; PyFluent will use ansys.awp_root="
+                  f"{cfg.ansys.awp_root} as fallback.")
+
+
 def _pid_alive(pid: str) -> bool:
     try:
         p = int(pid)
@@ -195,8 +232,10 @@ def run_doctor(config_path: str, printer=print) -> int:
             results.append(CheckResult(SKIP, "ansys paths",
                                        "mock mode — ANSYS not required"))
         else:
+            add(lambda: _version_consistency(cfg), "ansys version pairing")
             add(lambda: _path_exists(Path(cfg.ansys.awp_root), "AWP root"),
                 "ansys awp_root")
+            add(lambda: _awp_env_check(cfg), "AWP_ROOT env var")
             add(lambda: _path_exists(Path(cfg.ansys.resolve_runwb2()),
                                      "RunWB2.exe"), "ansys runwb2")
             add(lambda: _fluent_exe(cfg), "fluent executable")

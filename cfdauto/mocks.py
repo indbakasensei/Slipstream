@@ -121,15 +121,34 @@ class MockFluentController:
         res.drag_n = round(aero.force_from_coefficient(cd, ref.density,
                                                        exp.velocity, ref.area), 3)
         res.iterations = int(400 + 30 * abs(a) + self.rng.uniform(0, 60))
-        # Stream believable convergence so live plots/progress animate.
-        chunks = max(3, res.iterations // 100)
-        for i in range(1, chunks + 1):
-            it = int(res.iterations * i / chunks)
+        # v0.9 M2: stream one fluent.iteration event per iteration so the
+        # Monitor's live plot demonstrates the smooth per-iteration behaviour
+        # of the telemetry tap. Coarse solve.progress events are kept for
+        # backward compatibility with older subscribers.
+        step = max(1, res.iterations // 200)     # cap event volume for demos
+        for it in range(step, res.iterations + 1, step):
             f = 1 - math.exp(-it / 80)
-            self._emit(exp, "solve.progress", it=it,
+            cl_now = round(cl * f + self.rng.uniform(-0.001, 0.001), 6)
+            cd_now = round(cd * f + self.rng.uniform(-0.0002, 0.0002), 6)
+            # Fabricate plausible residuals that decay as the solve settles.
+            base = math.exp(-it / 120)
+            self._emit(exp, "fluent.iteration", it=it,
                        max_it=self.cfg.solve.max_iterations,
-                       cl=round(cl * f, 5), cd=round(cd * f, 5))
-            time.sleep(0.02)
+                       cl=cl_now, cd=cd_now,
+                       residuals={
+                           "continuity": max(1e-6, 1e-2 * base
+                                             + self.rng.uniform(0, 1e-4)),
+                           "x_velocity": max(1e-7, 3e-3 * base),
+                           "y_velocity": max(1e-7, 3e-3 * base),
+                           "z_velocity": max(1e-7, 2e-3 * base),
+                           "k": max(1e-7, 5e-3 * base),
+                           "omega": max(1e-7, 5e-3 * base),
+                       })
+            if it % 100 == 0:
+                self._emit(exp, "solve.progress", it=it,
+                           max_it=self.cfg.solve.max_iterations,
+                           cl=cl_now, cd=cd_now)
+            time.sleep(0.002)
         self._emit(exp, "solve.converged", it=res.iterations)
         self._stage(exp, "solve", "done")
         res.converged = True

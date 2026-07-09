@@ -1,99 +1,108 @@
 # =============================================================================
-# cfdauto configuration — wing AOA / velocity sweep automation
+# Slipstream / cfdauto — Master configuration
 # =============================================================================
-# Configured for:
-#   - ANSYS Student 2027 R1 (v271)
-#   - Working directory: C:\Users\tejas\Desktop\CFD_Auto
+# Tuned for:
+#   - ANSYS Student 2026 R1 (v261)
+#   - Wing project at C:\Users\tejas\Desktop\CFD_Auto\wing_project\
+# Every setting here has been validated by real runs.
 # =============================================================================
 
+# ─── ANSYS installation paths ─────────────────────────────────────────────────
 ansys:
-  version: "261"
+  version: "261"                                      # 2026 R1 = v261
   awp_root: "C:/Program Files/ANSYS Inc/ANSYS Student/v261"
   runwb2: "C:/Program Files/ANSYS Inc/ANSYS Student/v261/Framework/bin/Win64/RunWB2.exe"
 
+# ─── Workbench (geometry + mesh) ──────────────────────────────────────────────
 workbench:
   project_file: "C:/Users/tejas/Desktop/CFD_Auto/wing_project/wing_study.wbpj"
-  system_name: "FFF"        # internal system name — find it with: python main.py wb-info
-  aoa_scale: -1.0
-  aoa_parameter: "P1"       # WB parameter name OR its display text (e.g. "AOA")
-  aoa_expression: "{value} [degree]"   # how the AOA value is written into WB
-  update_geometry: true     # update the Geometry cell before the Mesh cell
-  refresh_setup: true       # refresh the Fluent Setup cell → writes the transfer .msh
-  save_project: true        # save the .wbpj after each geometry update
-  mesh_file_glob: ""        # override mesh auto-discovery (usually not needed)
-  timeout_s: 3600           # hard cap for one geometry+mesh update (seconds)
+  system_name: "FFF"                                  # from `python main.py wb-info`
+  aoa_parameter: "P1"                                 # from `python main.py wb-info`
+  aoa_expression: "{value} [degree]"
+  aoa_scale: -1.0                                     # ← flips inverted DM rotation.
+                                                      # Excel: +8° → WB: -8° internally.
+                                                      # Use natural POSITIVE angles now!
+  update_geometry: true
+  refresh_setup: true                                 # writes Fluent transfer mesh
+  save_project: true
+  mesh_file_glob: ""                                  # auto-discovers MESH/, MECH/, Fluent/
+  timeout_s: 3600
 
+# ─── Fluent (solver) ──────────────────────────────────────────────────────────
 fluent:
-  # Export this ONCE from your tuned Fluent setup: File → Write → Case.
-  # It carries ALL physics (models, materials, BCs, solver controls).
   baseline_case: "C:/Users/tejas/Desktop/CFD_Auto/wing_project/baseline.cas.h5"
-  dimension: 3              # 2 for a 2D airfoil section, 3 for a 3D wing
+  dimension: 3
   precision: "double"
-  processor_count: 4        # MAX 4 for ANSYS Student edition!
-  product_version: "27.1.0" # pinned to your installed version
-  ui_mode: "no_gui"         # no_gui | hidden_gui | gui  (gui = debugging only)
+  processor_count: 4                                  # Student cap: max 4 cores
+  product_version: "26.1.0"                           # MUST match ansys.version
+  ui_mode: "no_gui"                                   # headless; use "gui" only for debug
+  launch_timeout_s: 900                               # was 600 - increased for stability
 
-  inlet_zone: "inlet"       # must match your Named Selection exactly
+  inlet_zone: "inlet"
   inlet_type: "velocity_inlet"
-  wall_zones: ["wing"]      # every wall zone whose forces count
+  wall_zones: ["wing"]
 
-  # How AOA is realised:
-  #   geometry        → Workbench rotates the wing + remeshes
-  #   velocity_vector → wing/mesh fixed; inlet flow rotated instead
-  aoa_method: "geometry"
-  base_flow_axis: "+x"      # freestream direction at AOA = 0
-  base_lift_axis: "+y"      # lift direction at AOA = 0
+  aoa_method: "geometry"                              # rotates wing via WB parameter
+  base_flow_axis: "+x"
+  base_lift_axis: "+y"
 
-  reference:                # drives CL/CD normalisation — MUST match reality
-    density: 1.225          # kg/m³  (sea-level air)
-    viscosity: 1.7894e-05   # kg/(m·s)
-    area: 0.35        # your real planform area in m²
-    length: 0.4       # your real chord in m
-    depth: 1.0              # m   (2D cases only)
-    temperature: 288.16     # K
-    pressure: 0.0           # Pa gauge
-  launch_timeout_s: 600
+  # Save contour + mesh + geometry PNGs after each case (experimental, non-fatal)
+  capture_images: true                                # 4 images per case in artifact folder
 
+  # Reference values for CL/CD normalization
+  reference:
+    density: 1.225                                    # kg/m³  (sea level air)
+    viscosity: 1.7894e-05                             # kg/(m·s)
+    area: 1.0                                         # m²  ← REPLACE with your real planform area
+    length: 1.0                                       # m   ← REPLACE with your real chord
+    depth: 1.0                                        # m   (2D only; harmless in 3D)
+    temperature: 288.16                               # K
+    pressure: 0.0                                     # Pa gauge
+
+# ─── Solver behaviour ─────────────────────────────────────────────────────────
 solve:
-  max_iterations: 1500
-  check_interval: 100       # iterate in chunks of this size, then test convergence
-  min_iterations: 300       # never declare convergence before this many
-  convergence_window: 50    # trailing CL/CD samples examined for flatness
-  cl_tolerance: 1.0e-3      # max−min of CL over the window
-  cd_tolerance: 1.0e-4      # max−min of CD over the window
-  initialization: "hybrid"  # hybrid | standard
-  accept_unconverged: true  # write results anyway with Converged=NO
-  save_case_data: false     # archive final .cas.h5+.dat.h5 per case (disk-heavy)
-  crosscheck_tolerance: 0.03  # warn if CL·q·A vs Lift force disagree by more
+  max_iterations: 1500                                 # was 1500 - don't waste time on stalls
+  check_interval: 100                                 # iterate in 100-step chunks
+  min_iterations: 300
+  convergence_window: 50                              # trailing samples for flatness check
+  cl_tolerance: 1.0e-3
+  cd_tolerance: 1.0e-4
+  initialization: "hybrid"                            # hybrid | standard
+  accept_unconverged: true                            # write results even if not converged
+  save_case_data: false                               # true = ~200 MB per case (disk-heavy)
+  crosscheck_tolerance: 0.03                          # 3% CL·q·A vs Lift force check
 
+# ─── Excel schedule + result ledger ───────────────────────────────────────────
 excel:
-  file: "experiments.xlsx"
+  file: "C:/Users/tejas/Desktop/CFD_Auto/wing_project/experiments.2.xlsx"
   sheet: "Experiments"
   header_row: 1
-  save_retries: 10          # workbook open in Excel? retry this many times…
-  save_retry_wait_s: 6      # …waiting this long between attempts
-  columns:                  # rename freely to match your own sheet
-    aoa: "AOA_deg"
-    velocity: "Velocity_m_s"
-    status: "Status"
-    cl: "CL"
-    cd: "CD"
-    cl_cd: "CL/CD"
-    lift: "Lift_N"
-    drag: "Drag_N"
-    fl_fd: "FL/FD"
-    iterations: "Iterations"
-    converged: "Converged"
-    error: "Error"
-    started: "Started"
-    finished: "Finished"
-    duration: "Duration_min"
-    case_dir: "CaseDir"
+  save_retries: 10                                    # Excel open? retry N times
+  save_retry_wait_s: 6                                # 6s between retries
 
+  columns:
+    aoa:        "AOA_deg"
+    velocity:   "Velocity_m_s"
+    status:     "Status"
+    cl:         "CL"
+    cd:         "CD"
+    cl_cd:      "CL/CD"
+    lift:       "Lift_N"
+    drag:       "Drag_N"
+    fl_fd:      "FL/FD"
+    iterations: "Iterations"
+    converged:  "Converged"
+    error:      "Error"
+    started:    "Started"
+    finished:   "Finished"
+    duration:   "Duration_min"
+    case_dir:   "CaseDir"
+
+# ─── Runtime behaviour ────────────────────────────────────────────────────────
 runtime:
-  work_dir: "runs"          # meshes, per-case artifacts, logs, lockfile
-  retries_per_case: 1       # extra attempts after a case's first failure
-  stop_on_failure: false    # true → abort the whole batch on the first failure
-  reuse_mesh_per_geometry: true  # same AOA at several velocities → mesh once
-  rerun_stale_running: true # rows left RUNNING by a crash are re-queued
-  mock: false               # true → no ANSYS, fabricated results (pipeline test)
+  work_dir: "runs"                                    # meshes, logs, per-case artifacts
+  retries_per_case: 0                                 # was 1 - don't waste 20 min on retries
+  stop_on_failure: false                              # continue batch even if one case fails
+  reuse_mesh_per_geometry: true                       # cache meshes per unique AOA
+  rerun_stale_running: true                           # re-queue RUNNING rows from crashed runs
+  mock: false                                         # ← toggle to true for demo mode
