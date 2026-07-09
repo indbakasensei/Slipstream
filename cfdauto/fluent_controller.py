@@ -433,8 +433,24 @@ class FluentController:
         The file serves two purposes: it is the data source for the
         convergence check, and it is a permanent per-case artifact the user
         can plot afterwards.
+
+        Fluent 26.1 refuses to overwrite an existing report file; instead it
+        creates numbered variants like ``cfdauto_history_3_1.out``. Any
+        downstream code that keeps reading ``cfdauto_history.out`` then sees
+        stale data from the previous solve. We delete every candidate name
+        before recreating the definition, so Fluent starts with a clean slate.
         """
         out = case_dir / REPORT_FILE_NAME
+        # Nuke stale history files from previous runs of this case.
+        try:
+            for stale in case_dir.glob("cfdauto_history*.out"):
+                try:
+                    stale.unlink()
+                    log.debug("Removed stale history file: %s", stale.name)
+                except OSError:
+                    pass
+        except Exception:
+            pass
         try:
             rfiles = root.solution.monitor.report_files
             name = "cfdauto_history"
@@ -496,6 +512,27 @@ class FluentController:
         # v0.9 M2: telemetry tap streams per-iteration CL/CD + residuals.
         tap = None
         if case_dir is not None:
+            # Live probe: ask Fluent's running session for the current CL/CD
+            # via report_definitions.compute(). This is the primary source
+            # because Fluent buffers cfdauto_history.out in memory during
+            # solves — tailing the file alone stutters.
+            iter_counter = [0]  # closure over a mutable so we can bump it
+            def _probe():
+                try:
+                    vals = self._compute(root, [RD_CL, RD_CD])
+                    cl = vals.get(RD_CL)
+                    cd = vals.get(RD_CD)
+                    if cl is None or cd is None:
+                        return None
+                    # Approximate iteration count via read_history_rows below;
+                    # if the file lags, we still advance by 1 to keep plots
+                    # streaming.  The real iteration number is corrected when
+                    # the history file catches up.
+                    iter_counter[0] += 1
+                    return (iter_counter[0], float(cl), float(cd))
+                except Exception:
+                    return None
+
             try:
                 tap = TelemetryTap(
                     history_file=history_file,
@@ -503,6 +540,7 @@ class FluentController:
                     emit=self._emit,
                     max_it=s.max_iterations,
                     poll_hz=5.0,
+                    live_probe=_probe,
                 )
                 tap.start()
             except Exception as exc:
@@ -523,17 +561,26 @@ class FluentController:
 
     def _solve_loop(self, root, run, s, history_file: Path,
                     done: int) -> tuple[int, bool]:
+        # Fluent buffers cfdauto_history.out in memory during a single
+        # iterate() call and only flushes when the call returns. To keep the
+        # live plots streaming, we split each convergence chunk into small
+        # sub-chunks — the history file flushes at each boundary and the
+        # tap picks up the new rows on its next poll.
+        sub_chunk = min(10, s.check_interval)
         while done < s.max_iterations:
             chunk = min(s.check_interval, s.max_iterations - done)
             t0 = time.monotonic()
+            end_of_chunk = done + chunk
             try:
-                run.iterate(iter_count=chunk)
+                while done < end_of_chunk:
+                    step = min(sub_chunk, end_of_chunk - done)
+                    run.iterate(iter_count=step)
+                    done += step
             except Exception as exc:
                 raise DivergedError(
                     f"Solver raised after {done} iterations (likely divergence "
                     f"/ floating point error): {exc}"
                 ) from exc
-            done += chunk
 
             cl_hist, cd_hist = self._read_history(root, history_file)
             self._raise_if_diverged(cl_hist, cd_hist, done)

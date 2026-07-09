@@ -64,7 +64,9 @@ class TelemetryTap:
 
     def __init__(self, history_file: Path, transcript_file: Path,
                  emit: Callable[..., None], max_it: int,
-                 poll_hz: float = 5.0) -> None:
+                 poll_hz: float = 5.0,
+                 live_probe: Optional[Callable[[], Optional[Tuple[int, float, float]]]] = None,
+                 ) -> None:
         self.history_file = history_file
         self.transcript_file = transcript_file
         self.emit = emit
@@ -74,9 +76,15 @@ class TelemetryTap:
         self._thread: Optional[threading.Thread] = None
         self._last_history_row = 0
         self._transcript_offset = 0
-        # Latest residuals seen; forces come from the history file. Both are
-        # correlated by iteration number in the emitted event.
         self._pending_residuals: dict[int, Tuple[float, ...]] = {}
+        # v0.9 hotfix: Fluent buffers cfdauto_history.out in memory during a
+        # solve and only flushes at chunk boundaries. Tailing the file
+        # therefore stutters. If callers provide a `live_probe` callback
+        # that returns the current (it, CL, CD) via
+        # `report_definitions.compute()` over gRPC, we use it as the primary
+        # source and the file tail becomes a safety net only.
+        self._live_probe = live_probe
+        self._last_probe_it = 0
 
     # -- lifecycle ------------------------------------------------------- #
     def start(self) -> None:
@@ -105,24 +113,40 @@ class TelemetryTap:
                 log.exception("Telemetry tap poll failed — continuing.")
 
     def _poll_once(self) -> None:
-        # 1) residual lines from transcript (arrive first)
+        # 1) residual lines from transcript (arrive first, keyed by real
+        #    Fluent iteration number)
         self._drain_transcript()
-        # 2) force rows from the report file (definitive; carry iteration)
+        # 2) force rows from the history file (definitive — carries real
+        #    iteration number that matches residual keys). With the stale-
+        #    file cleanup in _setup_history_file this now streams properly
+        #    per sub-chunk boundary; residuals attach cleanly.
         rows = self._read_new_history_rows()
         for it, cl, cd in rows:
-            residuals = self._pending_residuals.pop(it, None)
-            payload = {"it": it, "max_it": self.max_it,
-                       "cl": cl, "cd": cd}
-            if residuals:
-                payload["residuals"] = {
-                    "continuity": residuals[0],
-                    "x_velocity": residuals[1],
-                    "y_velocity": residuals[2],
-                    "z_velocity": residuals[3],
-                    "k": residuals[4],
-                    "omega": residuals[5],
-                }
-            self.emit("fluent.iteration", **payload)
+            self._emit_iteration(it, cl, cd)
+
+        # Verbose diagnostic every ~10 s so silent failure is visible.
+        self._poll_count = getattr(self, "_poll_count", 0) + 1
+        if self._poll_count % 50 == 0:                # ~10 s at 5 Hz
+            hf_size = (self.history_file.stat().st_size
+                       if self.history_file.exists() else 0)
+            log.debug("Tap heartbeat: polls=%d, last_it=%d, history=%d bytes, "
+                      "pending_residuals=%d",
+                      self._poll_count, self._last_history_row,
+                      hf_size, len(self._pending_residuals))
+
+    def _emit_iteration(self, it: int, cl: float, cd: float) -> None:
+        residuals = self._pending_residuals.pop(it, None)
+        payload = {"it": it, "max_it": self.max_it, "cl": cl, "cd": cd}
+        if residuals:
+            payload["residuals"] = {
+                "continuity": residuals[0],
+                "x_velocity": residuals[1],
+                "y_velocity": residuals[2],
+                "z_velocity": residuals[3],
+                "k": residuals[4],
+                "omega": residuals[5],
+            }
+        self.emit("fluent.iteration", **payload)
 
     # -- history-file tailing -------------------------------------------- #
     def _read_new_history_rows(self) -> List[Tuple[int, float, float]]:
