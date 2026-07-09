@@ -152,6 +152,22 @@ class TelemetryTap:
         return new
 
     # -- transcript tailing (residuals) ---------------------------------- #
+    def _detect_encoding(self, sample: bytes) -> str:
+        """Sniff the transcript encoding from its BOM or byte pattern.
+        Fluent 26.1 on Windows writes UTF-16 LE (BOM = ff fe). Older ANSYS
+        builds emit UTF-8. Detection lets us support both without config."""
+        if sample.startswith(b"\xff\xfe"):
+            return "utf-16-le"
+        if sample.startswith(b"\xfe\xff"):
+            return "utf-16-be"
+        if sample.startswith(b"\xef\xbb\xbf"):
+            return "utf-8-sig"
+        # Heuristic: every second byte is 0x00 -> almost certainly UTF-16 LE
+        # without a BOM (some Fluent versions omit it after the first flush).
+        if len(sample) >= 20 and sum(1 for b in sample[1:20:2] if b == 0) > 7:
+            return "utf-16-le"
+        return "utf-8"
+
     def _drain_transcript(self) -> None:
         if not self.transcript_file.exists():
             return
@@ -163,10 +179,26 @@ class TelemetryTap:
             return
         try:
             with open(self.transcript_file, "rb") as f:
+                # First read of the session: sniff encoding from the first
+                # 64 bytes so we know how to decode subsequent tails.
+                if self._transcript_offset == 0 and not hasattr(
+                        self, "_encoding"):
+                    head = f.read(min(64, size))
+                    self._encoding = self._detect_encoding(head)
+                    log.debug("Transcript encoding detected: %s",
+                              self._encoding)
                 f.seek(self._transcript_offset)
-                chunk = f.read(size - self._transcript_offset).decode(
-                    "utf-8", errors="ignore")
-            self._transcript_offset = size
+                raw = f.read(size - self._transcript_offset)
+            # For UTF-16 we need to keep byte alignment: if we read an odd
+            # number of bytes we've split a code unit — drop the trailing
+            # byte and re-read it next poll.
+            enc = getattr(self, "_encoding", "utf-8")
+            if enc.startswith("utf-16") and len(raw) % 2 == 1:
+                raw = raw[:-1]
+                self._transcript_offset = size - 1
+            else:
+                self._transcript_offset = size
+            chunk = raw.decode(enc, errors="ignore")
         except OSError:
             return
         for ln in chunk.splitlines():
