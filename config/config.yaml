@@ -2,14 +2,14 @@
 # cfdauto configuration — wing AOA / velocity sweep automation
 # =============================================================================
 # Configured for:
-#   - ANSYS Student 2027 R1 (v271)
+#   - ANSYS Student 2027 R1 (v261)
 #   - Working directory: C:\Users\tejas\Desktop\CFD_Auto
 # =============================================================================
 
 ansys:
-  version: "271"
-  awp_root: "C:/Program Files/ANSYS Inc/ANSYS Student/v271"
-  runwb2: "C:/Program Files/ANSYS Inc/ANSYS Student/v271/Framework/bin/Win64/RunWB2.exe"
+  version: "261"
+  awp_root: "C:/Program Files/ANSYS Inc/ANSYS Student/v261"
+  runwb2: "C:/Program Files/ANSYS Inc/ANSYS Student/v261/Framework/bin/Win64/RunWB2.exe"
 
 workbench:
   project_file: "C:/Users/tejas/Desktop/CFD_Auto/wing_project/wing_study.wbpj"
@@ -29,7 +29,7 @@ fluent:
   dimension: 3              # 2 for a 2D airfoil section, 3 for a 3D wing
   precision: "double"
   processor_count: 4        # MAX 4 for ANSYS Student edition!
-  product_version: "27.1.0" # pinned to your installed version
+  product_version: "26.1.0" # pinned to your installed version
   ui_mode: "no_gui"         # no_gui | hidden_gui | gui  (gui = debugging only)
 
   inlet_zone: "inlet"       # must match your Named Selection exactly
