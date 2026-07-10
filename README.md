@@ -1,349 +1,572 @@
-# Slipstream v0.8 — Desktop CFD Study Manager for ANSYS Workbench + Fluent
+# Slipstream — Desktop CFD Study Manager for ANSYS Workbench + Fluent
 
-**Excel-driven parametric wing studies with a professional engineering GUI** —
-project dashboard, live simulation monitoring, an interactive results
-workspace, and the battle-tested `cfdauto` automation engine underneath.
-Free · open source (Apache-2.0) · 100% local · no telemetry.
+**Excel-driven parametric wing studies with a professional engineering GUI, a live-streaming simulation monitor, a SQLite provenance ledger, and a battle-tested automation engine underneath.**
 
-```
+`Apache-2.0` · `100% local` · `no telemetry` · `no cloud` · `33/33 tests pass`
+
+```bash
 pip install -r requirements.txt -r requirements-gui.txt
-python main.py gui            # toggle "Mock mode" in the toolbar → ▶ Run All
+python main.py gui            # toggle "Mock mode" → ▶ Run All
 ```
 
-The **mock mode** demonstrates the entire application — queue, live pipeline
-stages, CL/CD convergence plot, dataset table, charts, statistics, and
-generated contour images — in ~5 seconds, with no ANSYS installed.
-
-| Desktop shell (v0.8) | Engine (CLI, unchanged) |
-|---|---|
-| Dashboard · Project Explorer · Simulation Queue · Live Monitor (pipeline + progress + CL/CD) · Parameters editor · Results table · Interactive charts · Statistics · Image browser · Log console | `python main.py run` / `wb-info` / `init-template` — resumable batches, mesh caching, per-case artifacts |
-
-Design record for this release: **`docs/V08_DESIGN.md`** ·
-Long-term architecture: **`docs/CFD_PLATFORM_BLUEPRINT.md`** ·
-Tests: `pytest tests/ -q` → engine suite + offscreen GUI smoke tests.
+The **mock mode** demonstrates the entire application — queue, live pipeline stages, streaming CL/CD/residual plots, results table, charts, statistics, and generated contour images — in ~5 seconds, with no ANSYS installed.
 
 ---
 
-# Engine manual (cfdauto)
+## What it is (in one paragraph)
 
-## cfdauto — Excel-driven ANSYS Workbench + Fluent AOA/velocity sweep automation
+Slipstream is a local-first desktop application that automates ANSYS Fluent aerodynamics studies. You define a parametric sweep in Excel (AOA × velocity × any Workbench parameter), press **Run All**, and every simulation runs headlessly with:
 
-Production automation for aircraft-wing aerodynamic studies. An Excel workbook
-is the experiment schedule; for every unfinished row the framework sets the
-angle of attack in Workbench, updates geometry, regenerates the mesh, launches
-Fluent with **identical physics**, applies the inlet velocity, solves to
-convergence, extracts **CL, CD, Lift [N], Drag [N]** (plus CL/CD and FL/FD),
-and writes the results back into the same row — then moves to the next one.
-Kill it at any point and re-run the same command: it resumes exactly where it
-stopped.
+- **Live plots** of CL, CD, and 6 scaled residuals streaming from Fluent per iteration
+- **Automatic mesh caching** by geometry key (Workbench skipped when possible)
+- **Resume-safe Excel ledger** — kill the process anytime, DONE rows are skipped on the next run
+- **Physics linter** that flags stall regimes, Mach violations, and default reference values before wasting compute
+- **`doctor` command** that diagnoses 14 aspects of your environment (ANSYS paths, licenses, locks, orphaned processes) in one shot
+- **SQLite provenance database** with config hashing — `diff-config` shows exactly what changed between two batches
+- **Per-case artifacts** — geometry, mesh, pressure and velocity contour PNGs, transcripts, per-case logs
+- **License-lockout cascade detector** — halts the batch after 3 consecutive Fluent launch failures instead of burning through 25 cases in 90 seconds
 
-```
-python main.py init-template experiments.xlsx     # 1. create the schedule
-# fill in AOA_deg / Velocity_m_s rows, edit config/config.yaml
-python main.py wb-info                            # 2. find system/parameter names
-python main.py run --dry-run                      # 3. validate everything
-python main.py run                                # 4. go (resumable, overnight-safe)
-```
-
-Tested end-to-end in mock mode (`python main.py run --mock`, `pytest tests/`),
-which exercises the complete pipeline — Excel resume, mesh caching, retries,
-artifacts — without ANSYS installed. Requires Python 3.11+, ANSYS 2024R2+
-recommended (2024R2 and 2025R2 API differences are handled automatically).
+The GUI is built on PySide6 + pyqtgraph. The engine (`cfdauto`) works with any Fluent aerodynamics project — the framework doesn't know or care what geometry you have. It only needs a Workbench project with a parameter promoted to `P1`, a baseline `.cas.h5` file, and named zones for the inlet, outlet, and walls.
 
 ---
 
-## 1. High-level architecture
+## Table of contents
 
-Layered, with one orchestrator and one controller per external tool. Python
-(CPython 3.11+) is the brain; each ANSYS product is driven over the channel
-that is most reliable for it:
+1. [Features at a glance](#features-at-a-glance)
+2. [Requirements](#requirements)
+3. [Installation](#installation)
+4. [30-second quickstart](#30-second-quickstart)
+5. [The GUI](#the-gui)
+6. [The CLI](#the-cli)
+7. [Configuration reference](#configuration-reference)
+8. [Excel schedule format](#excel-schedule-format)
+9. [SQLite ledger (v0.9-M3)](#sqlite-ledger)
+10. [Architecture](#architecture)
+11. [Troubleshooting](#troubleshooting)
+12. [Roadmap](#roadmap)
+13. [Contributing](#contributing)
+14. [License and credits](#license-and-credits)
+
+---
+
+## Features at a glance
+
+### Desktop shell (v0.8)
+
+- **Dashboard** — Status cards, overall progress, live L/D chart, recent events, pipeline mirror
+- **Project Explorer** — Config, schedule, baseline case, every case folder with its artifacts
+- **Queue** — Live colour-coded schedule table with Run All / Run Selected / Stop / Retry FAILED
+- **Live Monitor** — Pipeline stage chips + weighted progress bar + **tabbed Forces + Residuals plots** (log-y residuals)
+- **Parameters editor** — Edit AOA/velocity/WBP columns for any PENDING row, add or duplicate rows
+- **Results table** — Sortable, CSV export
+- **Interactive charts** — CL-vs-AOA, drag polar, L/D-vs-V presets plus custom X/Y/colour; hover-identify; PNG export
+- **Statistics dock** — Mean/std/min/max for every metric + best-L/D headline
+- **Image browser** — Thumbnails + zoom/pan viewer for `geometry.png`, `mesh.png`, `pressure_contour.png`, `velocity_contour.png`
+- **Log console** — Streaming engine log identical to the CLI
+- **Mock mode** — Full application demo with fabricated results, zero ANSYS required. Orange banner + toolbar highlight + `[MOCK MODE]` title make it unmissable.
+
+### Engine (`cfdauto`)
+
+- **Excel-driven scheduling** with atomic writes, 10-retry save on locked workbooks
+- **Workbench batch journaling** with parameter-driven geometry updates
+- **PyFluent solve loop** with sub-chunk iteration for smooth live telemetry
+- **Force-flatness convergence** (CL/CD trailing-window standard deviation) — no residual-tolerance hunting
+- **Mesh caching by geometry hash** — Workbench skipped when the AOA (and any extra Workbench parameters) are unchanged
+- **Version-tolerant PyFluent adapters** — handles quirks across Fluent 24, 25, 26.1
+- **Per-case log files, transcripts, and artifact folders**
+- **Resume-safe with dead-PID lock detection** — never loses progress even after crashes
+
+### v0.9 Engine Hardening
+
+- **`aoa_scale` config knob** — one-line fix for inverted DesignModeler rotations
+- **`doctor` command** — 14-check environment diagnosis with FAIL/WARN/PASS table and exit codes
+- **Physics linter** — pre-flight checks for post-stall AOA, Mach violations, placeholder reference values, Student core-cap
+- **Per-iteration telemetry tap** — thread-safe background poller streams CL/CD + residuals during solves
+- **UTF-8 / UTF-16 LE / UTF-16 BE transcript auto-detection** — Fluent 26.1 on Windows writes UTF-16
+- **Stale history-file cleanup** — Fluent 26.1 refuses to overwrite report files; the framework deletes stale variants first
+- **License-lockout cascade detector** — auto-cleanup + halt after 3 consecutive Fluent-launch failures
+- **SQLite ledger** — every batch, case, iteration recorded with config-hash provenance and cross-study querying
+
+---
+
+## Requirements
+
+**Operating system**
+- Windows 10/11 (primary — ANSYS-tested)
+- Linux (engine + GUI both run; ANSYS not commonly installed but supported by PyFluent)
+- macOS (engine only; ANSYS is not available for Apple silicon)
+
+**Python**
+- 3.11 or 3.12
+- Virtual environment recommended
+
+**ANSYS** (real runs only — mock mode needs none)
+- ANSYS Workbench + Fluent
+- Tested on ANSYS Student 2026 R1 (v261) and commercial installations
+- ANSYS Student edition works with the built-in 4-core cap; the linter warns if you exceed it
+
+---
+
+## Installation
+
+```bash
+git clone https://github.com/<your-username>/slipstream.git
+cd slipstream
+
+# Create a virtual environment
+python -m venv venv
+# Windows
+venv\Scripts\activate
+# Linux / macOS
+source venv/bin/activate
+
+# Install the engine
+pip install -r requirements.txt
+
+# Install the desktop GUI (add if you want the desktop app)
+pip install -r requirements-gui.txt
+
+# Confirm 33/33 tests pass
+python -m pytest tests/ -q
+```
+
+### Windows / ANSYS Student install path
+
+If the `doctor` command reports missing ANSYS paths, edit `config/config.yaml` and set:
+
+```yaml
+ansys:
+  version: "261"                                      # 2026 R1 = v261
+  awp_root: "C:/Program Files/ANSYS Inc/ANSYS Student/v261"
+  runwb2: "C:/Program Files/ANSYS Inc/ANSYS Student/v261/Framework/bin/Win64/RunWB2.exe"
+
+fluent:
+  product_version: "26.1.0"                           # must match ansys.version
+```
+
+Then rerun `python main.py doctor` — every check should pass.
+
+---
+
+## 30-second quickstart
+
+```bash
+# 1. Verify environment
+python main.py doctor
+
+# 2. Try the mock mode (no ANSYS)
+python main.py gui
+# → tick "Mock mode" in the toolbar → click "▶ Run All"
+# 8 mock cases finish in ~5 seconds with live streaming plots.
+
+# 3. For real runs: point config.yaml at your Workbench project + baseline case
+# Confirm parameter names in your project
+python main.py wb-info
+
+# Preview what would run
+python main.py run --dry-run
+
+# Run one case as a smoke test
+python main.py run --max-cases 1
+
+# Full batch (or use the GUI)
+python main.py run
+```
+
+---
+
+## The GUI
+
+### Layout
 
 ```
-                    ┌─────────────────────────────────────────────┐
-                    │                main.py (CLI)                │
-                    │      run · wb-info · init-template          │
-                    └──────────────────┬──────────────────────────┘
-                                       │
-   config/config.yaml ──▶ ┌────────────▼────────────┐ ◀── runs/cfdauto.lock
-   (all site-specifics)   │       Orchestrator      │     (single instance)
-                          │  per-row pipeline loop  │
-                          └─┬─────────┬───────────┬─┘
-              ┌─────────────┘         │           └──────────────┐
-   ┌──────────▼─────────┐  ┌──────────▼─────────┐  ┌─────────────▼──────────┐
-   │    ExcelManager    │  │ WorkbenchController│  │    FluentController    │
-   │ openpyxl, in-place │  │ renders IronPython │  │  PyFluent (gRPC) —     │
-   │ status = run state │  │ journal → RunWB2   │  │  BCs, solve, extract   │
-   │ atomic saves       │  │ -B -X -R (batch)   │  │  242/252 adapters      │
-   └──────────┬─────────┘  └──────────┬─────────┘  └─────────────┬──────────┘
-              │                       │                          │
-   experiments.xlsx        wing_study.wbpj              baseline.cas.h5
-   (the ledger)            SpaceClaim/DM ▸ Mesh         + FFF.msh per AOA
-                           ▸ (Setup refresh)            (mesh replaced, physics
-                                                         untouched)
+┌ Menu: File · Run · View · Help ──────────────────────────────────────────┐
+│ [Open Project] [Reload] │ [▶ Run All] [⏹ Stop] │ [☐ Mock mode]           │
+│─────────────────────────────────────────────────────────────────────────│
+│ ⚠ ORANGE BANNER (visible only when mock mode is active) ⚠               │
+│─────────────────────────────────────────────────────────────────────────│
+│              │                                          │ QUEUE           │
+│   EXPLORER   │  Dashboard  Results  Charts  Images     │ Run All RunSel  │
+│   Project    │                                          │ ⏹ Stop ☐Retry  │
+│   ⚙ config   │                                          │ Row AOA V St CL │
+│   ▤ schedule │  Central workspace (tabs)                │  2  0 20 ✓ .20  │
+│   ⬢ baseline │                                          │  3  0 30 ▶ …    │
+│   Runs       │                                          │─────────────────│
+│   📁 r002…   │                                          │ MONITOR         │
+│      *.png   │                                          │ r003 · 2/8      │
+│              │                                          │ [Stages]        │
+│   [Refresh]  │                                          │ ████████░ 74%   │
+│              │                                          │ CL/CD live plot │
+│              │                                          │ Residual log-y  │
+│─────────────────────────────────────────────────────────────────────────│
+│                       LOG · Statistics (tabbed)                          │
+│─────────────────────────────────────────────────────────────────────────│
+│ engine: case 2/8 — r003_aoa0_v30 · queue: 6 pending · v0.9.0             │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-Supporting modules: `models.py` (Experiment/CaseResult dataclasses),
-`aero.py` (wind-axis vectors, q, C↔F conversions), `state.py` (lockfile,
-mesh cache, per-case artifact dirs, result.json), `logging_setup.py`
-(console + rotating file + per-case logs), `exceptions.py` (error taxonomy),
-`mocks.py` (ANSYS-free backends), `config.py` (YAML → typed dataclasses,
-unknown keys rejected loudly).
+Every panel is dockable — drag by its title bar to move or tab it. `View → Reset layout` restores the default arrangement.
 
-**Why a hybrid WB-journal + PyFluent design?** Geometry and meshing live
-inside Workbench's dependency system, and the only fully reliable way to run
-"set parameter → update geometry → update mesh" unattended across versions is
-a batch journal (`RunWB2 -B -X -R`). The solver, by contrast, is far better
-driven live over PyFluent's gRPC API: chunked iteration, convergence checks on
-the actual force histories, structured result extraction, and clean error
-handling — none of which a fire-and-forget journal can give you. Each tool is
-used where it is strongest, and the mesh file is the clean hand-off between
-them.
+### Keyboard shortcuts
 
-## 2. Folder structure
+| Shortcut | Action |
+|----------|--------|
+| `F5` | Run All |
+| `Shift+F5` | Stop after current case |
+| `Ctrl+O` | Open Project |
+| `Ctrl+R` | Reload Project |
+| `Ctrl+Q` | Exit |
+| `Ctrl+A` | Select all rows in Queue / Results |
+| Scroll wheel | Zoom the Images viewer |
+
+Full walkthrough with troubleshooting: [`docs/slipstream_tutorial.html`](docs/slipstream_tutorial.html) or [`.md`](docs/slipstream_tutorial.md).
+
+---
+
+## The CLI
+
+```bash
+python main.py <command> [options]
+```
+
+| Command | What it does |
+|---------|-------------|
+| `gui` | Launch the desktop application |
+| `doctor` | 14-check environment diagnosis with PASS/WARN/FAIL table |
+| `run` | Execute the schedule (batch mode). Options: `--dry-run`, `--max-cases N`, `--retry-failed`, `--config PATH` |
+| `wb-info` | Print Workbench parameter names for the project (helps set `aoa_parameter`) |
+| `init-template` | Generate a fresh `experiments.xlsx` with the correct columns |
+| `studies` | (M3) List studies recorded in the ledger |
+| `batches [--study NAME]` | (M3) List recent batches, optionally per study |
+| `query "<SQL>"` | (M3) Read-only SQL against the SQLite ledger |
+| `diff-config <HASH_A> <HASH_B>` | (M3) Show every config setting that differs between two batches |
+| `export-study NAME --out PATH.csv` | (M3) Export every case in a study to CSV |
+
+Example — see what changed between yesterday's good run and today's broken run:
+
+```bash
+python main.py batches
+# id  study      config_hash    started_at
+# 12  wing_v2    a1f4d329e8b7   2026-07-10T09:15:22
+# 11  wing_v2    76b85065c2cb   2026-07-09T14:03:11
+
+python main.py diff-config 76b85065c2cb a1f4d329e8b7
+# 2 difference(s) between 76b85065c2cb and a1f4d329e8b7:
+#   fluent.product_version    "26.1.0"  →  "27.1.0"
+#   workbench.aoa_scale       -1.0      →  1.0
+```
+
+---
+
+## Configuration reference
+
+`config/config.yaml` is the single source of truth. Every debugged setting from real ANSYS runs:
+
+```yaml
+ansys:
+  version: "261"                                      # ANSYS release: 261 = 2026 R1
+  awp_root: "C:/Program Files/ANSYS Inc/ANSYS Student/v261"
+  runwb2: "C:/Program Files/ANSYS Inc/ANSYS Student/v261/Framework/bin/Win64/RunWB2.exe"
+
+workbench:
+  project_file: "C:/path/to/wing_study.wbpj"
+  system_name: "FFF"                                  # from `python main.py wb-info`
+  aoa_parameter: "P1"                                 # from `python main.py wb-info`
+  aoa_expression: "{value} [degree]"
+  aoa_scale: 1.0                                      # -1.0 flips inverted DM rotations
+  update_geometry: true
+  refresh_setup: true
+  save_project: true
+  timeout_s: 3600
+
+fluent:
+  baseline_case: "C:/path/to/baseline.cas.h5"
+  dimension: 3
+  precision: "double"
+  processor_count: 4                                  # Student edition cap
+  product_version: "26.1.0"                           # MUST match ansys.version
+  ui_mode: "no_gui"
+  launch_timeout_s: 900
+  inlet_zone: "inlet"
+  inlet_type: "velocity_inlet"
+  wall_zones: ["wing"]
+  aoa_method: "geometry"                              # rotates via WB parameter
+  base_flow_axis: "+x"
+  base_lift_axis: "+y"
+  capture_images: true                                # write 4 PNGs per case
+  reference:
+    density: 1.225                                    # kg/m³ sea-level air
+    viscosity: 1.7894e-05
+    area: 0.35                                        # m² — your real planform area
+    length: 0.4                                       # m — your real chord
+    depth: 1.0
+    temperature: 288.16
+    pressure: 0.0
+
+solve:
+  max_iterations: 500                                 # 1500 wastes time on stalls
+  check_interval: 20                                  # smaller = smoother telemetry
+  min_iterations: 100
+  convergence_window: 50                              # trailing-samples flatness check
+  cl_tolerance: 1.0e-3
+  cd_tolerance: 1.0e-4
+  initialization: "hybrid"
+  accept_unconverged: true                            # write results even if not converged
+  save_case_data: false                               # true = ~200 MB per case
+  crosscheck_tolerance: 0.03                          # 3% CL·q·A vs Lift force sanity check
+
+excel:
+  file: "C:/path/to/experiments.xlsx"
+  sheet: "Experiments"
+  header_row: 1
+  save_retries: 10                                    # retry N times if workbook is open in Excel
+  save_retry_wait_s: 6                                # seconds between retries
+  columns:
+    aoa:        "AOA_deg"
+    velocity:   "Velocity_m_s"
+    status:     "Status"
+    cl:         "CL"
+    cd:         "CD"
+    cl_cd:      "CL/CD"
+    lift:       "Lift_N"
+    drag:       "Drag_N"
+    fl_fd:      "FL/FD"
+    iterations: "Iterations"
+    converged:  "Converged"
+    error:      "Error"
+    started:    "Started"
+    finished:   "Finished"
+    duration:   "Duration_min"
+    case_dir:   "CaseDir"
+
+runtime:
+  work_dir: "runs"
+  retries_per_case: 0                                 # don't waste 20 min on physics failures
+  stop_on_failure: false
+  reuse_mesh_per_geometry: true
+  rerun_stale_running: true                           # re-queue RUNNING rows after crashes
+  mock: false                                         # true = fabricate everything, no ANSYS
+  study_name: "wing_v2_sweep"                         # tags batches in the SQLite ledger
+```
+
+---
+
+## Excel schedule format
+
+`experiments.xlsx` is where you define the sweep. Generate a fresh template:
+
+```bash
+python main.py init-template experiments.xlsx
+```
+
+Fill in `AOA_deg` and `Velocity_m_s`. Leave `Status` blank — the engine writes `RUNNING`, `DONE`, or `FAILED` there and never loses progress.
+
+For multi-parameter studies, add columns prefixed with `WBP:` (Workbench Parameter). Any column named `WBP:Alpha`, `WBP:Beta`, etc. is automatically bound to Workbench parameters by name — no code change needed.
+
+**Example schedule:**
+
+| AOA_deg | Velocity_m_s | WBP:Flap | Status | CL | CD | ... |
+|---------|--------------|----------|--------|-----|-----|-----|
+| 0 | 20 | 0 | | | | |
+| 4 | 20 | 0 | | | | |
+| 8 | 20 | 0 | | | | |
+| 4 | 20 | 15 | | | | |
+| 4 | 20 | 30 | | | | |
+
+The engine walks the queue in row order, caches meshes by (AOA, WBP:*) key, and skips Workbench when it can.
+
+---
+
+## SQLite ledger
+
+Slipstream writes every batch, case, and per-iteration data point to `runs/slipstream.db` alongside the Excel workbook. Excel remains the human-facing schedule and result store; the database adds provenance and analytics.
+
+### Schema (v1)
+
+- **`studies`** — named groups of runs (`runtime.study_name`)
+- **`configs`** — every unique effective config as a JSON snapshot, keyed by SHA-256 hash
+- **`batches`** — one row per `main.py run`, tagged with study + config hash + version + timing
+- **`cases`** — every experiment with row/case_id/AOA/velocity/CL/CD/lift/drag/iterations/converged/error
+- **`iterations`** — the per-iteration telemetry tap output: `(case_id, iter, cl, cd, continuity, x_velocity, y_velocity, z_velocity, k, omega)`
+
+### Why it matters
+
+Every debugging session where a value silently drifted (`aoa_scale` reverted, `product_version` mismatched, `capture_images` moved to the wrong YAML section) is now diagnosable in one command:
+
+```bash
+python main.py batches --study wing_v2
+python main.py diff-config <good_hash> <bad_hash>
+```
+
+The database is additive and non-fatal — if it fails to open or write, the batch still succeeds and Excel remains authoritative.
+
+---
+
+## Architecture
 
 ```
-wing_aoa_automation/
-├── main.py                        # CLI: run / wb-info / init-template
-├── requirements.txt
-├── experiments.xlsx               # THE schedule + results ledger (template incl.)
+slipstream/
+├── main.py                  # CLI entry: run, gui, doctor, wb-info, init-template,
+│                            #           studies, batches, query, diff-config, export-study
+├── gui_main.py              # GUI entry (imports gui.app)
 ├── config/
-│   └── config.yaml                # every site-specific setting, fully commented
-├── cfdauto/                       # the package
-│   ├── __init__.py
-│   ├── config.py                  # YAML → validated dataclasses
-│   ├── models.py                  # Experiment, CaseResult, status vocabulary
-│   ├── aero.py                    # wind axes, q, coefficient↔force
-│   ├── exceptions.py              # CaseError vs FrameworkError taxonomy
-│   ├── logging_setup.py           # console + runs/logs/cfdauto.log + per-case
-│   ├── excel_manager.py           # read schedule, resume logic, atomic writes
-│   ├── state.py                   # lockfile, mesh cache, artifact dirs
-│   ├── workbench_controller.py    # journal rendering + RunWB2 subprocess
-│   ├── fluent_controller.py       # PyFluent session: BCs → solve → extract
-│   ├── orchestrator.py            # the pipeline loop + failure policy
-│   ├── mocks.py                   # ANSYS-free stand-ins (testing/CI)
-│   └── templates/
-│       ├── wb_update.wbjn.tpl     # set params → update Geometry+Mesh (+Setup)
-│       └── wb_inspect.wbjn.tpl    # dump systems/parameters for `wb-info`
-├── tools/
-│   └── make_experiment_template.py
-├── tests/
-│   └── test_mock_pipeline.py      # end-to-end mock run, resume, retries, math
-└── runs/                          # created at runtime
-    ├── logs/cfdauto.log           # rotating debug log
-    ├── cfdauto.lock               # PID lock (stale locks auto-cleared)
-    ├── mesh_cache.json            # geometry_key → cached mesh
-    ├── meshes/                    # meshes copied out of the WB project tree
-    └── cases/<case_id>/           # per-experiment artifacts:
-        ├── wb_update.wbjn         #   the exact journal that ran
-        ├── wb_status.json         #   Workbench-side outcome
-        ├── transcript.trn         #   full Fluent transcript
-        ├── cfdauto_history.out    #   CL/CD vs iteration (plot me!)
-        ├── result.json            #   authoritative result record
-        └── case.log               #   everything logged for this case
+│   └── config.yaml          # your project config
+│
+├── cfdauto/                 # engine package (~4000 lines, 100% type-hinted)
+│   ├── __init__.py          # version
+│   ├── config.py            # dataclasses with validation
+│   ├── models.py            # Experiment, CaseResult, Status constants
+│   ├── events.py            # EventBus (thread-safe fan-out)
+│   ├── exceptions.py        # CaseError, FrameworkError, FluentError, ...
+│   ├── excel_manager.py     # atomic Excel read/write with retry
+│   ├── state.py             # RunState (mesh cache, lock file, work_dir)
+│   ├── workbench_controller.py    # WB batch journal + parameter binding
+│   ├── fluent_controller.py       # PyFluent solve loop + image capture
+│   ├── orchestrator.py            # main loop + cascade detector + ledger writes
+│   ├── mocks.py             # dependency-free mock backends
+│   ├── aero.py              # coefficient/force conversions
+│   ├── telemetry.py         # v0.9-M2: per-iteration tap for CL/CD/residuals
+│   ├── doctor.py            # v0.9-M1: environment diagnosis
+│   ├── linter.py            # v0.9-M1: physics pre-flight
+│   ├── ledger.py            # v0.9-M3: SQLite ledger + config hashing
+│   ├── ledger_cli.py        # v0.9-M3: query/diff-config/export-study
+│   └── logging_setup.py     # per-case log files
+│
+├── gui/                     # PySide6 desktop shell
+│   ├── app.py, main_window.py
+│   ├── theme.py
+│   ├── state.py             # AppState (dataset, config, running flag)
+│   ├── event_bridge.py      # bus → Qt signals bridge
+│   ├── panels/
+│   │   ├── dashboard.py, queue_panel.py, monitor.py, params_panel.py,
+│   │   │   results_table.py, charts_panel.py, stats_panel.py,
+│   │   │   images_panel.py, log_console.py, explorer.py
+│   └── widgets/
+│       └── cards.py, pipeline_widget.py
+│
+├── tests/                   # 33 tests
+│   ├── test_engine.py       # baseline: models, config, aero, orchestrator
+│   ├── test_v09_m1.py       # aoa_scale, linter rules, doctor
+│   ├── test_v09_m2.py       # telemetry tap, residuals correlation, mock streaming
+│   ├── test_v09_m2_encoding.py  # UTF-8 / UTF-16 LE / UTF-16 BE
+│   └── test_v09_m3.py       # ledger schema, config hash, end-to-end
+│
+├── tools/                   # small utilities
+│   ├── make_experiment_template.py
+│   └── inspect_fluent_mesh_api.py
+│
+├── docs/
+│   ├── slipstream_tutorial.html
+│   └── slipstream_tutorial.md
+│
+└── .github/workflows/
+    └── ci.yml               # Ubuntu + Windows, Python 3.11 + 3.12
 ```
 
-## 3. Execution pipeline (per experiment row)
-
-1. **Read schedule** — `ExcelManager` maps headers, parses rows, and queues
-   everything not `DONE`/`SKIP` (plus `FAILED` with `--retry-failed`, plus
-   stale `RUNNING` rows from a crash).
-2. **Mark RUNNING** — written and saved immediately: the crash marker.
-3. **Geometry & mesh** (`geometry` mode; skipped entirely in
-   `velocity_vector` mode)
-   - Mesh cache lookup by `geometry_key` (AOA + any `WBP:` extras). Hit →
-     Workbench is skipped (a 4-AOA × 5-velocity matrix meshes 4 times, not 20).
-   - Miss → render `wb_update.wbjn` from the template, run
-     `RunWB2 -B -X -R journal` with a hard timeout, verify `wb_status.json`,
-     discover the newest `*.msh*` under `<project>_files/dp0/**/MESH/`, and
-     copy it to `runs/meshes/` (Workbench overwrites its copy next case).
-4. **Solve** — fresh headless Fluent via PyFluent: read `baseline.cas.h5`
-   (all physics) → `file.replace_mesh` → per-case **reference values**
-   (velocity!) → inlet velocity (and rotated flow direction in
-   `velocity_vector` mode) → create `cl/cd/fl/fd` report definitions →
-   hybrid init (standard fallback) → iterate in chunks, checking CL/CD
-   flatness → `report_definitions.compute()` → CL↔Lift cross-check.
-5. **Record** — `result.json` first (authoritative), then the Excel row:
-   CL, CD, CL/CD, Lift_N, Drag_N, FL/FD, Iterations, Converged, timestamps,
-   Duration, CaseDir, Status=`DONE`/`FAILED` — saved atomically.
-6. **Next row** — failures mark the row and continue (configurable).
-
-## 4. AOA parameterization — recommended method
-
-**Recommended: a driven rotation parameter in the CAD, exposed as a Workbench
-parameter** (this is what the framework's `geometry` mode drives). One-time
-setup:
-
-*DesignModeler* — insert **Create ▸ Body Operation ▸ Rotate** (or a Rotate in
-**Body Transformation**) on the wing body, axis = spanwise (e.g. Z), angle =
-your AOA. In *Details*, tick the **P** checkbox next to the angle → it becomes
-a Workbench parameter (`P1`, display text editable). DM parameters are the
-most robust choice for unattended batch updates — they regenerate
-deterministically and survive version upgrades well.
-
-*SpaceClaim* — give the wing a **Move ▸ Rotate** with a driving dimension, or
-create a **Group** holding the rotation angle (Groups panel → select the
-dimension → *Create P Group*). The P-group appears in the WB parameter set the
-same way. Works fine; just be aware SC scripts/records are historically more
-version-sensitive than DM parameters.
-
-Then: **Named Selections** for `inlet`, `outlet`, and every wing wall
-(`wing`, …) — created once in the geometry so zone names survive every remesh
-(this is what lets `replace_mesh` keep the boundary conditions attached).
-Verify with `python main.py wb-info`, put the parameter name (or display
-text) in `workbench.aoa_parameter`, done. Extra geometry parameters need
-zero code: add an Excel column `WBP:<ParamName>`.
-
-Rotate the **wing inside a fixed far-field domain** (not the whole domain), so
-inlet/outlet orientation stays constant. At high AOA the Boolean/mesh can
-fail — that surfaces as a clean `FAILED` row with the Workbench message, and
-`retries_per_case` covers transient hiccups.
-
-**Alternative worth knowing — `velocity_vector` mode** (built in, one config
-switch): keep wing and mesh fixed and rotate the *incoming flow* at the inlet
-instead; lift/drag are then evaluated along rotated wind axes
-(drag = (cos α, sin α, 0), lift = (−sin α, cos α, 0) — handled automatically
-in `aero.py`). No Workbench, no remeshing: a full sweep costs minutes of
-overhead instead of hours, and mesh-induced scatter between AOAs disappears.
-Standard practice for external aero **when the domain is a generous far
-field** around the wing (all outer boundaries comfortably far, ideally
-pressure-far-field or velocity inlets on the upstream faces). If your mesh is
-tight around the wing or the domain is a narrow tunnel, stick with `geometry`
-mode. The two modes produce directly comparable coefficients because both use
-proper wind-axis force vectors.
-
-## 5. How Python talks to each tool
-
-| Tool | Channel | Why |
-|---|---|---|
-| **Workbench** (parameter, project update) | IronPython **journal** rendered from a template, executed by `RunWB2 -B -X -R <journal>` as a subprocess with timeout; outcome handed back via `wb_status.json` | Works on every WB version, fully headless, no COM fragility. The journal is saved per case = perfect reproducibility. |
-| **Geometry** (SpaceClaim/DM) | Not scripted directly — the journal calls `Geometry.Update(AllDependencies=True)` and the parametric rotation regenerates | The parameter *is* the interface; far more robust than driving CAD scripts. |
-| **Meshing** | `Mesh.Update(AllDependencies=True)` in the same journal; optional `Setup.Refresh()` forces the Fluent transfer `.msh` write | Uses your interactively-tuned mesh settings unchanged. |
-| **Fluent** | **PyFluent** (`ansys-fluent-core`) over gRPC: `launch_fluent`, `file.read_case`, `file.replace_mesh`, settings tree for BCs/reference values/report definitions, `run_calculation.iterate`, `report_definitions.compute` | Live, structured control: chunked solving, convergence on force histories, typed extraction, clean shutdown. |
-| **Excel** | `openpyxl` in-place edits (formatting preserved), atomic replace-on-save, retry loop for the file-open-in-Excel lock, CSV recovery sidecar | The workbook stays both human-friendly and machine-authoritative. |
-
-*Modern alternative:* `ansys-workbench-core` (PyWorkbench, gRPC) can replace
-the subprocess path on 2024R1+ — `launch_workbench()` + `client.run_script_string(...)`
-with the same journal body. The controller is isolated behind
-`prepare_mesh(exp, case_dir) -> Path`, so swapping backends touches one class.
-
-## 6. CL/CD & force extraction strategy
-
-- Four **report definitions** are created in the case: `cfdauto_cl`
-  (type *lift*), `cfdauto_cd` (type *drag*), `cfdauto_fl`, `cfdauto_fd`
-  (type *force*), all on `fluent.wall_zones`, with `force_vector`s supplied by
-  `aero.wind_axes` (domain axes in `geometry` mode, rotated wind axes in
-  `velocity_vector` mode).
-- **Reference values are set per case** — density, area, length from config
-  and **reference velocity = this row's inlet velocity**. This is the classic
-  silent-killer: forget it and every velocity produces the "same" CL.
-- A **report file** (`cfdauto_history.out`) logs CL/CD every iteration into
-  the case folder; it drives convergence and doubles as the plot-ready history.
-- Final numbers come from `report_definitions.compute(report_defs=[...])`
-  (output-shape differences across PyFluent versions are normalized); if that
-  ever fails, the last history values are used and forces are reconstructed as
-  `C·q·A` (logged as such).
-- **Cross-check:** `Lift ≈ CL·½ρV²A` must hold within
-  `solve.crosscheck_tolerance` (default 3 %) — a mismatch warns loudly and
-  almost always means the config reference values don't match the case.
-- FL/FD is written as requested; note that with a single reference set it is
-  mathematically identical to CL/CD (the sheet documents this).
-- **Convergence criterion:** CL *and* CD flat (max−min < tolerance) over the
-  trailing `convergence_window` samples, after `min_iterations`, iterating in
-  `check_interval` chunks up to `max_iterations`. Force flatness is the
-  criterion aerodynamicists actually trust — residuals routinely stall while
-  the forces are long converged (keep your baseline case's residual criteria
-  as a floor if you like; they simply stop a chunk early). Non-finite CL/CD →
-  `DivergedError` → row `FAILED`.
-
-## 7. Error recovery & resume
-
-- **Status column = run state.** `PENDING/empty → RUNNING → DONE/FAILED`,
-  `SKIP` respected. Crash mid-case? The row is still `RUNNING` and gets
-  re-queued next launch (`rerun_stale_running`). Nothing is ever re-run that
-  finished, nothing is lost that didn't.
-- **Per-case isolation.** Everything solver-related raises a `CaseError`
-  subclass (`WorkbenchError`, `MeshNotFoundError`, `FluentError`,
-  `DivergedError`, `NotConvergedError`, `ResultExtractionError`) → row marked
-  `FAILED` with the reason in *Error*, batch continues (`stop_on_failure`
-  flips that). `FrameworkError`/`ConfigError` (bad paths, bad YAML) abort
-  immediately — no point burning a night on a broken setup.
-- **Retries:** `retries_per_case` extra attempts for transient failures
-  (license blips, flaky mesh at high AOA).
-- **Timeouts:** Workbench journals run under `subprocess` timeout
-  (`workbench.timeout_s`); Fluent launch under `launch_timeout_s`; solving is
-  bounded by `max_iterations` in chunked calls.
-- **Excel can't eat your results.** `result.json` is written to the case
-  folder *before* the workbook. Saves are atomic (temp file + `os.replace`);
-  if the workbook is locked open in Excel, the save retries
-  `save_retries × save_retry_wait_s` and finally appends to
-  `runs/recovery_results.csv` instead of crashing the batch.
-- **Single-instance lock** (`runs/cfdauto.lock`, stale-PID aware) prevents two
-  batches fighting over the same project/workbook.
-- **Full forensics per case:** journal, WB status, transcript, history,
-  case.log, result.json — a failed 3 a.m. case is diagnosable at 9 a.m.
-
-## 8. Scalability & future extensions
-
-- **New geometry variables — zero code.** Add an Excel column
-  `WBP:<WorkbenchParam>` (e.g. `WBP:FlapAngle`, `WBP:P3`); values flow into
-  the journal's parameter dict, and the mesh cache key includes them
-  automatically.
-- **Turbulence model / physics variants.** The clean pattern: one exported
-  baseline case per physics variant (`baseline_sst.cas.h5`,
-  `baseline_keps.cas.h5`) and a config per study — physics stays *verified by
-  you in the GUI*, not reverse-engineered in code. A `fluent.case_overrides`
-  hook in `FluentController` is the natural place for programmatic model
-  switching if you later want a `Model` column.
-- **New backends.** The orchestrator depends only on two protocols
-  (`prepare_mesh`, `run_case`); the mocks prove it. PyWorkbench, Fluent
-  Meshing, or an HPC submit-and-poll backend are drop-in classes.
-- **Parallel/HPC.** Per-case Fluent core count is `processor_count`; for
-  farm-level parallelism, run several instances each pointed at its own copy
-  of the project + a row-range (the lockfile intentionally serializes a
-  *single* project). Workbench Design Points are the native alternative for
-  massive DOEs — this framework deliberately stays outside it for
-  per-case control, but the journal template shows exactly where DP calls
-  would slot in.
-- **Config-first design** means renamed columns, different units text, other
-  zone names, 2-D airfoil studies (`dimension: 2`, area = chord × 1 m) are all
-  YAML edits.
-
-## 9. One-time setup checklist
-
-1. `pip install -r requirements.txt` (Python 3.11+).
-2. Geometry: parametric AOA rotation (Section 4) + Named Selections
-   (`inlet`, `outlet`, `wing`…). Verify one manual Update works in WB.
-3. Mesh: tune it once interactively; automation just re-runs it.
-4. Fluent (via WB, once): set models, materials, BCs, solver controls,
-   reasonable residual criteria → run a sanity case → **File ▸ Write ▸ Case**
-   → that file is `fluent.baseline_case`.
-5. `python main.py wb-info` → fill `workbench.system_name`,
-   `workbench.aoa_parameter` in `config/config.yaml`; set zones, reference
-   values (area & length = your planform & chord!), core count.
-6. `python main.py init-template experiments.xlsx` → enter your AOA/velocity
-   matrix.
-7. `python main.py run --dry-run` → fix anything it flags.
-8. `python main.py run --max-cases 1` → inspect the first case's artifacts.
-9. `python main.py run` → let it work through the schedule. Watch
-   `runs/logs/cfdauto.log` or the console.
+---
 
 ## Troubleshooting
 
-| Symptom | Cause / fix |
-|---|---|
-| `MeshNotFoundError` after a successful WB update | The Mesh cell updated but no `.msh` landed where expected. Keep `workbench.refresh_setup: true` (forces the Fluent transfer file), or point `workbench.mesh_file_glob` at your project's mesh path. |
-| `replace_mesh` fails: zone name mismatch | Named Selections missing/renamed in the geometry, so the new mesh's zones ≠ baseline case zones. Fix the Named Selections; names must be stable. |
-| Every velocity gives the same CL | Reference velocity wasn't updated → can't happen here (set per case), but if you see it, check the cross-check warning and `fluent.reference.area`. |
-| `AWP_ROOT252 is not set` | Set `ansys.awp_root` explicitly or define the env var (e.g. `C:\Program Files\ANSYS Inc\v252`). |
-| Workbook save keeps retrying | The file is open in Excel. Close it; the run continues. Worst case results land in `runs/recovery_results.csv` and in each case's `result.json`. |
-| PyFluent launch errors / API mismatch | Pair versions sensibly: recent `ansys-fluent-core` + Fluent 2024R2/2025R2 are covered by the built-in adapters. Pin `fluent.product_version` if several ANSYS versions are installed. |
-| WB journal fails instantly | Run the saved `runs/cases/<id>/wb_update.wbjn` manually via `RunWB2 -R` and read `wb_stdout.log` — the journal echoes each stage. |
-| Two runs at once | Second instance exits on the lockfile. Stale locks from crashes clear themselves (PID check). |
-| High-AOA meshing failures | Expected physics of the method: enable `retries_per_case`, consider `velocity_vector` mode for the sweep extremes, or robustify sizing in the Mesh cell. |
+### `python main.py doctor` says FAIL on an ANSYS path
 
-## License / notes
+Your config's `ansys.awp_root` or `runwb2` points to the wrong version. If you have ANSYS Student 2026 R1, they should end in `v261`, not `v271`. Fix the config and rerun `doctor`.
 
-Internal engineering tooling example — adapt freely. The mock mode
-(`--mock` / `CFDAUTO_MOCK=1`) is the fastest way to demo the workflow to
-colleagues: the whole pipeline runs in ~2 s with plausible aerodynamics and
-identical file outputs.
+### `Fluent failed to launch: 'AWP_ROOT271'`
+
+Config mismatch: `ansys.version: "261"` but `fluent.product_version: "27.1.0"`. PyFluent looks up `AWP_ROOT271` (from product_version) and doesn't find it. Set both to the same version (e.g. `"261"` and `"26.1.0"`) and rerun.
+
+### Multiple consecutive `Fluent failed to launch: RPC UNAVAILABLE`
+
+ANSYS Student license lockout — tokens are stuck for 30-60 min after a crashed session. The cascade detector halts the batch after 3 in a row. Kill orphaned processes and wait:
+
+```powershell
+Get-Process | Where-Object {$_.ProcessName -match "fluent|fl_mpi|cx"} | Stop-Process -Force
+Remove-Item -Force runs\cfdauto.lock -ErrorAction SilentlyContinue
+# wait 5-10 minutes, or restart your PC
+```
+
+### Residuals plot is empty during a real solve
+
+Make sure you've replaced both `cfdauto/telemetry.py` and `cfdauto/fluent_controller.py` with v0.9-M2. The fix requires the stale-history-file cleanup in `fluent_controller.py` to work.
+
+### CL decreases as AOA increases (upside-down polar)
+
+Your DesignModeler rotation axis is inverted. Two options:
+
+1. Set `workbench.aoa_scale: -1.0` in `config.yaml`. Enter natural positive angles in Excel; the engine negates before writing to the parameter.
+2. Open the geometry in DesignModeler, flip the Rotate body axis direction, and re-export `baseline.cas.h5`.
+
+### `Nothing to do — every row is DONE`
+
+The workbook already has results. Right-click rows in the Queue → **Re-queue (clear status)**, or add `--retry-failed` to also re-queue FAILED rows.
+
+Full troubleshooting matrix in [`docs/slipstream_tutorial.html`](docs/slipstream_tutorial.html).
+
+---
+
+## Roadmap
+
+**v0.8 (shipped)** — GUI shell, live monitor with per-chunk progress, results/charts/images/stats panels
+
+**v0.9 (shipped — 33/33 tests)**
+- ✅ M1 — `aoa_scale`, `doctor`, physics linter, mesh-cache hardening
+- ✅ M2 — per-iteration telemetry tap, live residuals plot, UTF-16 support, sub-chunk iteration, stale-file cleanup, license cascade detector
+- ✅ M3 — SQLite ledger with config-hash provenance, per-iteration storage, 5 query commands
+
+**v1.0 (next)**
+- CI pipeline on GitHub Actions (Ubuntu + Windows, 3.11 + 3.12)
+- Study analytics panel in the GUI (SQLite-backed, re-plot any past case)
+- NACA 0012 validation as a second-geometry portfolio proof point
+- README/USAGE/CONTRIBUTING polish
+
+**Future**
+- Interactive 3D viewer with PyVista (rotate/pan/zoom pressure and velocity fields, slice planes, streamlines)
+- PDF report generator
+- Multi-turbulence-model support (LES/DES for cases where RANS stalls)
+- OpenFOAM backend (fully free CFD path, no ANSYS required)
+
+Full blueprint: [`CFD_PLATFORM_BLUEPRINT.md`](CFD_PLATFORM_BLUEPRINT.md).
+
+---
+
+## Contributing
+
+1. Fork the repo, create a feature branch
+2. Run `python -m pytest tests/ -q` — must show `33 passed` (or more, if you add tests)
+3. Follow the existing code style: type hints everywhere, docstrings on public functions, small classes with narrow responsibilities
+4. Open a pull request describing what problem you solved
+
+The codebase is deliberately over-commented for readers who are also learning CFD automation. Continue that tradition.
+
+### Running the test suite
+
+```bash
+# All 33 tests
+python -m pytest tests/ -q
+
+# Just the M3 SQLite tests
+python -m pytest tests/test_v09_m3.py -v
+
+# GUI tests need Qt's offscreen platform on headless machines
+QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q
+```
+
+---
+
+## License and credits
+
+**Apache License 2.0** — see [LICENSE](LICENSE).
+
+Built with:
+- [PySide6](https://doc.qt.io/qtforpython-6/) — Qt for Python
+- [pyqtgraph](https://www.pyqtgraph.org/) — high-performance plots
+- [ansys-fluent-core](https://fluent.docs.pyansys.com/) — PyFluent
+- [openpyxl](https://openpyxl.readthedocs.io/) — Excel read/write
+- [pandas](https://pandas.pydata.org/) — data handling
+- [PyYAML](https://pyyaml.org/) — config parsing
+
+Slipstream is not affiliated with or endorsed by Ansys, Inc. ANSYS, Fluent, and Workbench are trademarks of Ansys, Inc.
+
+---
+
+**No telemetry. No cloud dependency. Your compute, your data, your machine.**

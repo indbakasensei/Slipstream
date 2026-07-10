@@ -210,6 +210,7 @@ class RuntimeConfig:
     reuse_mesh_per_geometry: bool = True # cache meshes across velocities
     rerun_stale_running: bool = True     # rows left RUNNING by a crash
     mock: bool = False                   # exercised by tests / --mock
+    study_name: str = "default"          # v0.9-M3: groups runs in the DB
 
 
 @dataclass

@@ -35,6 +35,7 @@ from .config import Config
 from .events import EventBus
 from .excel_manager import ExcelManager
 from .exceptions import CaseError, ExcelWriteError, FrameworkError
+from .ledger import Ledger
 from .logging_setup import add_case_file_handler, remove_handler
 from .models import (
     STATUS_DONE,
@@ -85,6 +86,35 @@ class Orchestrator:
         self.bus = bus or EventBus()
         self.state = RunState(cfg.work_dir())
 
+        # v0.9-M3: SQLite ledger — dual-write beside Excel for provenance and
+        # per-iteration telemetry storage. Never fatal — Excel remains the
+        # source of truth if this fails.
+        self.ledger: Optional[Ledger] = None
+        self._batch_id: Optional[int] = None
+        self._current_case_pk: Optional[int] = None
+        try:
+            self.ledger = Ledger(cfg.work_dir() / "slipstream.db")
+            # Route fluent.iteration events into the DB in real time.
+            self.bus.subscribe(self._on_bus_event)
+        except Exception as exc:
+            log.warning("SQLite ledger disabled (%s) — Excel-only mode.", exc)
+            self.ledger = None
+
+    def _on_bus_event(self, evt) -> None:
+        """Persist per-iteration telemetry into the DB as it streams from
+        the tap. Silent on failure; the plot still works either way."""
+        if (self.ledger is None or self._current_case_pk is None
+                or evt.type != "fluent.iteration"):
+            return
+        d = evt.data
+        try:
+            self.ledger.record_iteration(
+                self._current_case_pk,
+                int(d["it"]), float(d["cl"]), float(d["cd"]),
+                d.get("residuals"))
+        except Exception:
+            log.debug("record_iteration failed — non-fatal", exc_info=True)
+
     # ------------------------------------------------------------------ #
     def run(self, max_cases: int = 0, retry_failed: bool = False,
             only_rows: Optional[set[int]] = None,
@@ -112,6 +142,24 @@ class Orchestrator:
             todo = todo[:max_cases]
 
         log.info("=== %d case(s) queued ===", len(todo))
+        # v0.9-M3: register this batch in the ledger with a config hash.
+        if self.ledger is not None:
+            try:
+                study_id = self.ledger.ensure_study(
+                    self.cfg.runtime.study_name,
+                    workbook_path=str(self.cfg.excel.file))
+                cfg_hash = self.ledger.record_config(self.cfg)
+                from cfdauto import __version__ as _ver
+                self._batch_id = self.ledger.start_batch(
+                    study_id, cfg_hash, total=len(todo),
+                    slipstream_version=_ver)
+                log.info("Batch %d opened in ledger (study='%s', "
+                         "config=%s)", self._batch_id,
+                         self.cfg.runtime.study_name, cfg_hash[:12])
+            except Exception as exc:
+                log.warning("Ledger batch start failed (%s) — continuing "
+                            "with Excel only.", exc)
+                self._batch_id = None
         self.bus.emit("batch.started", total=len(todo),
                       rows=[e.row for e in todo])
         self.state.acquire_lock()
@@ -174,6 +222,19 @@ class Orchestrator:
         if failures:
             log.info("Failed rows keep their error message in the workbook; "
                      "fix the cause and re-run with --retry-failed.")
+        # v0.9-M3: finalize the ledger batch and close the connection.
+        if self.ledger is not None and self._batch_id is not None:
+            try:
+                self.ledger.finish_batch(self._batch_id, done, failures, stopped)
+                log.info("Ledger batch %d finalized in %s",
+                         self._batch_id,
+                         self.cfg.work_dir() / "slipstream.db")
+            except Exception:
+                log.debug("ledger.finish_batch failed", exc_info=True)
+            try:
+                self.ledger.close()
+            except Exception:
+                pass
         self.bus.emit("batch.finished", ok=done, failed=failures, stopped=stopped)
         return failures
 
@@ -187,6 +248,15 @@ class Orchestrator:
             return False
 
         case_dir = self.state.case_dir(exp)
+        # v0.9-M3: register case in ledger before running.
+        if self.ledger is not None and self._batch_id is not None:
+            try:
+                self._current_case_pk = self.ledger.start_case(
+                    self._batch_id, exp.row, exp.case_id,
+                    exp.aoa_deg, exp.velocity, dict(exp.extra_wb_params))
+            except Exception:
+                log.debug("ledger.start_case failed", exc_info=True)
+                self._current_case_pk = None
         case_handler = add_case_file_handler(case_dir)   # per-case log file
         try:
             self.excel.mark_running(exp, str(case_dir))
@@ -200,6 +270,7 @@ class Orchestrator:
                 try:
                     res = self._attempt(exp, case_dir)
                     self._record_success(exp, res)
+                    self._ledger_finish_case(STATUS_DONE, res, case_dir)
                     return True
                 except CaseError as exc:
                     last_err = exc
@@ -213,11 +284,31 @@ class Orchestrator:
                               attempt, attempts, traceback.format_exc())
 
             msg = f"{type(last_err).__name__}: {last_err}"
-            self._record_failure(exp, CaseResult(error=msg,
-                                                 artifact_dir=str(case_dir)), msg)
+            failure_res = CaseResult(error=msg, artifact_dir=str(case_dir))
+            self._record_failure(exp, failure_res, msg)
+            self._ledger_finish_case(STATUS_FAILED, failure_res, case_dir,
+                                     error=msg)
             return False
         finally:
             remove_handler(case_handler)
+            self._current_case_pk = None
+
+    def _ledger_finish_case(self, status: str, res: CaseResult,
+                            case_dir: Path,
+                            error: Optional[str] = None) -> None:
+        """Best-effort ledger update at case completion."""
+        if self.ledger is None or self._current_case_pk is None:
+            return
+        try:
+            payload = {"cl": res.cl, "cd": res.cd,
+                       "lift_n": res.lift_n, "drag_n": res.drag_n,
+                       "iterations": res.iterations,
+                       "converged": res.converged}
+            self.ledger.finish_case(self._current_case_pk, status,
+                                    result=payload, error=error,
+                                    artifact_dir=str(case_dir))
+        except Exception:
+            log.debug("ledger.finish_case failed", exc_info=True)
 
     def _attempt(self, exp: Experiment, case_dir: Path) -> CaseResult:
         """Mesh phase (with cache) + solver phase for a single attempt."""

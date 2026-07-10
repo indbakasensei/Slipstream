@@ -78,6 +78,32 @@ def build_parser() -> argparse.ArgumentParser:
                               "locks, workbook, physics linter)")
     _add_common(doc)
 
+    # v0.9-M3: ledger commands
+    st = sub.add_parser("studies", help="List studies recorded in the ledger")
+    _add_common(st)
+
+    bt = sub.add_parser("batches", help="List batches (optionally by study)")
+    _add_common(bt)
+    bt.add_argument("--study", help="filter by study name")
+
+    q = sub.add_parser("query",
+                       help="Read-only SQL against the ledger")
+    _add_common(q)
+    q.add_argument("sql", help="SELECT/WITH/EXPLAIN/PRAGMA query")
+
+    dc = sub.add_parser("diff-config",
+                        help="Show which config settings differ between two "
+                             "batches (by hash)")
+    _add_common(dc)
+    dc.add_argument("hash_a", help="config hash (first 12 chars are enough)")
+    dc.add_argument("hash_b")
+
+    ex = sub.add_parser("export-study",
+                        help="Export every case in a study to CSV")
+    _add_common(ex)
+    ex.add_argument("name", help="study name")
+    ex.add_argument("--out", default="study_export.csv")
+
     tpl = sub.add_parser("init-template",
                          help="Create a fresh experiments.xlsx schedule template")
     tpl.add_argument("path", nargs="?", default="experiments.xlsx",
@@ -167,6 +193,16 @@ def cmd_doctor(args) -> int:
     return run_doctor(args.config)
 
 
+def _ledger_cmd(name, args, **kwargs) -> int:
+    """Dispatch to cfdauto.ledger_cli.cmd_* with the loaded config."""
+    from cfdauto.config import load_config
+    from pathlib import Path as _P
+    from cfdauto import ledger_cli as _lc
+    cfg = load_config(_P(args.config))
+    fn = getattr(_lc, "cmd_" + name.replace("-", "_"))
+    return fn(cfg, **kwargs)
+
+
 def cmd_gui(args) -> int:
     """Launch the PySide6 desktop shell (imported lazily so the CLI keeps
     working on machines without the GUI extras installed)."""
@@ -201,6 +237,19 @@ def main(argv=None) -> int:
             return cmd_gui(args)
         if args.command == "doctor":
             return cmd_doctor(args)
+        if args.command == "studies":
+            return _ledger_cmd("studies", args)
+        if args.command == "batches":
+            return _ledger_cmd("batches", args, study=args.study)
+        if args.command == "query":
+            return _ledger_cmd("query", args, sql=args.sql)
+        if args.command == "diff-config":
+            return _ledger_cmd("diff-config", args,
+                               hash_a=args.hash_a, hash_b=args.hash_b)
+        if args.command == "export-study":
+            from pathlib import Path as _P
+            return _ledger_cmd("export-study", args,
+                               name=args.name, out=_P(args.out))
         if args.command == "init-template":
             return cmd_init_template(args)
         return 2
