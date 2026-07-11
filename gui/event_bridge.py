@@ -27,6 +27,7 @@ from typing import Optional, Set
 from PySide6.QtCore import QThread, Signal
 
 from cfdauto.config import Config
+from cfdauto.error_formatting import format_error
 from cfdauto.events import Event, EventBus
 from cfdauto.excel_manager import ExcelManager
 from cfdauto.exceptions import CFDAutoError
@@ -116,14 +117,23 @@ class EngineWorker(QThread):
             self.batchFinished.emit(*self._summary)
         except CFDAutoError as exc:
             log.error("Batch aborted: %s", exc)
-            self.fatalError.emit(str(exc))
+            self.fatalError.emit(self._safe_render(exc))
             self.batchFinished.emit(0, 0, False)
-        except Exception:  # pragma: no cover — surfaced, never swallowed
+        except Exception as exc:  # pragma: no cover — surfaced, never swallowed
             log.exception("Unexpected engine error")
-            self.fatalError.emit("Unexpected engine error — see log console.")
+            self.fatalError.emit(self._safe_render(exc))
             self.batchFinished.emit(0, 0, False)
         finally:
             logging.getLogger().removeHandler(handler)
+
+    def _safe_render(self, exc: BaseException) -> str:
+        """format_error() is defensive already; this is a second fallback so
+        a formatter bug can never break fatal-error reporting itself."""
+        try:
+            log_path = self.cfg.work_dir() / "logs" / "cfdauto.log"
+            return format_error(exc, log_path=log_path).render_text()
+        except Exception:
+            return str(exc) or "Unexpected engine error — see log console."
 
     def _forward(self, evt: Event) -> None:
         if evt.type == "batch.finished":

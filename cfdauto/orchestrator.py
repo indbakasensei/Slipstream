@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import List, Optional, Protocol
 
 from .config import Config
+from .error_formatting import format_error
 from .events import EventBus
 from .excel_manager import ExcelManager
 from .exceptions import CaseError, ExcelWriteError, FrameworkError
@@ -284,6 +285,12 @@ class Orchestrator:
                               attempt, attempts, traceback.format_exc())
 
             msg = f"{type(last_err).__name__}: {last_err}"
+            if last_err is not None:
+                try:
+                    log.error("Row %d failed permanently:\n%s", exp.row,
+                              format_error(last_err, case_dir=case_dir).render_text())
+                except Exception:
+                    log.debug("format_error failed for row %d", exp.row, exc_info=True)
             failure_res = CaseResult(error=msg, artifact_dir=str(case_dir))
             self._record_failure(exp, failure_res, msg)
             self._ledger_finish_case(STATUS_FAILED, failure_res, case_dir,

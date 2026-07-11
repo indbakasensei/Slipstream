@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 from .config import Config, ConfigError, load_config
+from .error_formatting import format_error
 
 PASS, WARN, FAIL, SKIP = "PASS", "WARN", "FAIL", "SKIP"
 _ICON = {PASS: "✓", WARN: "!", FAIL: "✗", SKIP: "-"}
@@ -39,7 +40,11 @@ def _check(fn: Callable[[], Tuple[str, str]], label: str) -> CheckResult:
         status, detail = fn()
         return CheckResult(status, label, detail)
     except Exception as exc:                      # a check must never crash
-        return CheckResult(FAIL, label, f"{type(exc).__name__}: {exc}")
+        try:
+            detail = format_error(exc).render_compact()
+        except Exception:
+            detail = f"{type(exc).__name__}: {exc}"
+        return CheckResult(FAIL, label, detail)
 
 
 # --------------------------------------------------------------------------- #

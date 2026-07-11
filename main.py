@@ -28,6 +28,7 @@ import sys
 from pathlib import Path
 
 from cfdauto.config import load_config
+from cfdauto.error_formatting import format_error
 from cfdauto.exceptions import CFDAutoError, ConfigError, FrameworkError
 from cfdauto.excel_manager import ExcelManager
 from cfdauto.logging_setup import setup_logging
@@ -226,6 +227,15 @@ def cmd_init_template(args) -> int:
     return 0
 
 
+def _safe_render(exc: BaseException) -> str:
+    """format_error() is defensive already; this is a second fallback so a
+    formatter bug can never take down the CLI's own error reporting."""
+    try:
+        return format_error(exc).render_text()
+    except Exception:
+        return f"{type(exc).__name__}: {exc}"
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     try:
@@ -254,10 +264,10 @@ def main(argv=None) -> int:
             return cmd_init_template(args)
         return 2
     except (ConfigError, FrameworkError) as exc:
-        print(f"\nCONFIG/FRAMEWORK ERROR: {exc}", file=sys.stderr)
+        print(f"\n{_safe_render(exc)}", file=sys.stderr)
         return 2
     except CFDAutoError as exc:
-        print(f"\nERROR: {exc}", file=sys.stderr)
+        print(f"\n{_safe_render(exc)}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         print("\nInterrupted — rerun the same command to resume where you "

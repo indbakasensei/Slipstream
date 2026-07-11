@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (QDockWidget, QFileDialog, QLabel, QMainWindow,
                                QMessageBox, QTabWidget, QVBoxLayout, QWidget)
 
 import cfdauto
+from cfdauto.error_formatting import format_error
 from cfdauto.events import Event
 from cfdauto.exceptions import CFDAutoError
 from gui.event_bridge import EngineWorker
@@ -239,6 +240,16 @@ class MainWindow(QMainWindow):
         # Window title also carries the badge (visible in taskbar / Alt+Tab).
         self.setWindowTitle(BASE_TITLE + ("   [MOCK MODE]" if is_mock else ""))
 
+    @staticmethod
+    def _safe_render(exc: BaseException) -> str:
+        """format_error() is defensive already; this is a second fallback so
+        a formatter bug can never break the "could not load project" dialog
+        itself."""
+        try:
+            return format_error(exc).render_text()
+        except Exception:
+            return f"{type(exc).__name__}: {exc}"
+
     # ------------------------------------------------------------------ #
     # Project lifecycle
     # ------------------------------------------------------------------ #
@@ -257,10 +268,11 @@ class MainWindow(QMainWindow):
             self._sync_mock_ui()
             self.statusBar().showMessage(f"Project loaded: {path}", 5000)
         except CFDAutoError as exc:
-            QMessageBox.critical(self, "Could not load project", str(exc))
+            QMessageBox.critical(self, "Could not load project",
+                                 self._safe_render(exc))
         except Exception as exc:                       # bad yaml etc.
             QMessageBox.critical(self, "Could not load project",
-                                 f"{type(exc).__name__}: {exc}")
+                                 self._safe_render(exc))
 
     def _reload(self) -> None:
         if self.state.config_path:
