@@ -44,10 +44,11 @@ The GUI is built on PySide6 + pyqtgraph. The engine (`cfdauto`) works with any F
 10. [Study Analytics (v1.0.0-alpha.3)](#study-analytics)
 11. [Projects (v1.0.0-alpha.5)](#projects)
 12. [Architecture](#architecture)
-13. [Troubleshooting](#troubleshooting)
-14. [Roadmap](#roadmap)
-15. [Contributing](#contributing)
-16. [License and credits](#license-and-credits)
+13. [Building & Packaging (v1.0.0-alpha.6)](#building--packaging)
+14. [Troubleshooting](#troubleshooting)
+15. [Roadmap](#roadmap)
+16. [Contributing](#contributing)
+17. [License and credits](#license-and-credits)
 
 ---
 
@@ -531,11 +532,87 @@ slipstream/
 │
 ├── docs/
 │   ├── slipstream_tutorial.html
-│   └── slipstream_tutorial.md
+│   ├── slipstream_tutorial.md
+│   └── RELEASE_CHECKLIST.md # v1.0.0-alpha.6: manual pre-release checklist
+│
+├── build/                   # v1.0.0-alpha.6: packaging (see build/README.md)
+│   ├── slipstream.spec      # PyInstaller one-folder build spec
+│   ├── make_version_info.py # generates the .exe's version resource from cfdauto.__version__
+│   ├── build.ps1, clean.ps1, release.ps1
+│   └── README.md
 │
 └── .github/workflows/
     └── ci.yml               # Ubuntu + Windows, Python 3.11 + 3.12
 ```
+
+---
+
+## Building & Packaging
+
+Full details, prerequisites, and troubleshooting live in
+[`build/README.md`](build/README.md) — this is a summary.
+
+### Building from source
+
+No packaging needed to develop or use Slipstream day-to-day — this is
+what every earlier section of this README already assumes:
+
+```bash
+pip install -r requirements.txt -r requirements-gui.txt
+python main.py gui
+```
+
+### Packaging prerequisites
+
+Building the standalone Windows executable additionally needs:
+
+```bash
+pip install -r requirements-build.txt   # installs PyInstaller
+```
+
+ANSYS is **not** required to build or run the packaged executable — Mock
+mode works standalone in the packaged `.exe` exactly as it does from
+source.
+
+### Creating release builds
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build\build.ps1     # build only
+powershell -ExecutionPolicy Bypass -File build\release.ps1   # clean + build + zip
+powershell -ExecutionPolicy Bypass -File build\clean.ps1     # remove all generated output
+```
+
+`release.ps1` reads the version to embed in the archive's filename
+(`Slipstream-v<version>-win64.zip`) directly from `cfdauto.__version__` —
+the same single authoritative version source shown in the window title,
+status bar, and About dialog — so the archive name can never drift from
+what the app itself reports.
+
+### Running the packaged executable
+
+```
+dist\Slipstream\Slipstream.exe
+```
+
+This is a one-folder build (a `Slipstream\` directory containing the
+`.exe` plus its dependencies) rather than a single file — this keeps
+PySide6/Qt's LGPLv3-licensed DLLs separate and individually replaceable,
+per the LGPL-compliance approach already documented in
+[`docs/CFD_PLATFORM_BLUEPRINT.md`](docs/CFD_PLATFORM_BLUEPRINT.md) §20.
+Copy/zip the whole `Slipstream\` folder to distribute it, not just the
+`.exe`.
+
+### Known limitations
+
+- Windows-only packaging path (the engine/GUI both still run cross-platform
+  from source).
+- No installer (MSI/NSIS) — just a one-folder build, zipped by `release.ps1`.
+- Not code-signed — Windows SmartScreen may warn on first launch; this is
+  expected for an unsigned executable and unrelated to the build itself.
+- No icon is bundled yet (none exists in this repository — see
+  `build/README.md` for how to add one later without touching the spec).
+- See [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) for the
+  manual verification a release should go through before tagging.
 
 ---
 

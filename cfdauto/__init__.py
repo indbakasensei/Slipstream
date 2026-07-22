@@ -9,7 +9,7 @@ Public entry points:
 See ``main.py`` for the CLI and ``README.md`` for the full manual.
 """
 
-__version__ = "0.9.0.dev3"
+__version__ = "1.0.0-alpha.6"
 
 from .config import Config, load_config                       # noqa: F401
 from .models import CaseResult, Experiment                    # noqa: F401

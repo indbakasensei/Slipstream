@@ -1,0 +1,4 @@
+# Slipstream packaging — install on top of requirements.txt + requirements-gui.txt
+# Only needed to build the standalone executable (see build/README.md);
+# never required to run Slipstream from source.
+pyinstaller>=6.6

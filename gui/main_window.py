@@ -22,7 +22,7 @@ import logging
 from pathlib import Path
 from typing import Optional, Set
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QDialog, QDockWidget, QFileDialog, QLabel,
                                QMainWindow, QMessageBox, QTabWidget,
@@ -106,6 +106,13 @@ class MainWindow(QMainWindow):
 
         if config_path and Path(config_path).exists():
             self._load(config_path)
+        elif not self.state.cfg:
+            # Sprint 6: friendlier first-run experience than a silent empty
+            # dashboard — invite the user straight into the existing
+            # Project Selector once the window has actually appeared
+            # (QTimer.singleShot(0, ...) defers this past .show(), rather
+            # than popping a modal dialog in front of an invisible parent).
+            QTimer.singleShot(0, self._open_project_selector)
 
     # ------------------------------------------------------------------ #
     # Docks / menus / status bar
