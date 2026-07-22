@@ -1,0 +1,6 @@
+# Slipstream benchmark validation tooling (tools/validation/) — install on
+# top of requirements.txt. Only needed to generate comparison plots
+# (tools/validation/plots.py); the metrics/report side
+# (tools/validation/compare.py) is stdlib-only and needs nothing extra.
+# Never a runtime dependency of the CLI, GUI, or engine.
+matplotlib>=3.7

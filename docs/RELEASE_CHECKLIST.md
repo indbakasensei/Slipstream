@@ -48,6 +48,27 @@ automation Sprint 6 was told to avoid.
       dialog all show the expected version; right-click
       `Slipstream.exe` ▸ Properties ▸ Details shows the same version.
 
+## Engineering validation (v1.0.0-alpha.7)
+
+Full process and templates: [`docs/validation/VALIDATION.md`](validation/VALIDATION.md).
+Only required for releases that touch the solver path, ANSYS version
+pairing, or physics-affecting config defaults — note in the release notes
+if skipped for a packaging/tooling-only release.
+
+- [ ] Reference dataset verified — the CSV(s) under
+      `docs/validation/benchmark/reference/` are current and their source
+      is cited in `VALIDATION.md` §9.
+- [ ] Slipstream dataset generated — a fresh
+      `python main.py export-study ... --out docs/validation/benchmark/slipstream/<name>.csv`
+      run against the config this release ships.
+- [ ] Comparison metrics reviewed — `python -m tools.validation.compare ...`
+      run, and `comparison_summary.json`/`comparison_table.csv` checked
+      against `VALIDATION.md` §10's acceptance criteria.
+- [ ] Validation report updated — `docs/validation/VALIDATION.md`'s
+      `PENDING` fields replaced with this run's real values (hardware,
+      software/ANSYS versions, solver settings, mesh, BCs), status banner
+      removed.
+
 ## Release
 
 - [ ] Release notes prepared (what changed since the last tag — the
