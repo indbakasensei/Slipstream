@@ -19,6 +19,10 @@ automation Sprint 6 was told to avoid.
 
 ## Manual GUI smoke test
 
+Step-by-step walkthrough with expected outcomes and troubleshooting notes:
+[`docs/QA_GUIDE.md`](QA_GUIDE.md). The checklist below is the fast,
+checkbox version of the same pass.
+
 - [ ] Launch the GUI from source (`python main.py gui`) with no existing
       project — confirm the first-run experience (Project Selector)
       appears instead of a bare empty dashboard.
@@ -71,9 +75,10 @@ if skipped for a packaging/tooling-only release.
 
 ## Release
 
-- [ ] Release notes prepared (what changed since the last tag — the
-      `CHANGELOG.md`-style summary each sprint's commit already documents).
+- [ ] Release notes prepared — see `docs/RELEASE_NOTES_v<version>.md` and
+      `CHANGELOG.md` (Keep a Changelog format; both are the authoritative
+      per-release summary, not just a commit message).
 - [ ] Ready for Git tag — once every item above is checked, tag the
-      release (e.g. `git tag v1.0.0-alpha.6`) and, if desired, attach the
+      release (e.g. `git tag v1.0.0-rc1`) and, if desired, attach the
       `release\Slipstream-v<version>-win64.zip` archive produced by
       `build\release.ps1` to the corresponding GitHub release.

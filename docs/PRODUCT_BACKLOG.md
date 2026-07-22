@@ -11,6 +11,8 @@
 
 **Status legend:** `Complete` — implemented and in the current codebase · `Partial` — implemented but incomplete, experimental, or not yet reliable enough for a v1.0 GA claim · `Planned` — not yet implemented, explicitly named as v1.0 scope in the README or directly implied by it.
 
+**Staleness note (added at v1.0.0-rc1):** this document was written before several since-shipped pieces of work — centralized error formatting, the Study Summary dashboard widget (§4.3 below, updated), Project & Study Management (`cfdauto/project_manager.py`), the PyInstaller packaging pipeline, and the benchmark validation framework (`tools/validation/`) — and does not yet have Epics for the latter three. See `README.md`'s Roadmap section for an accurate, up-to-date shipped-feature list; treat this backlog as authoritative only for the Epics/Features it already describes, not as a complete current inventory.
+
 ---
 
 ## Table of contents
@@ -182,9 +184,9 @@ Every batch, case, and iteration recorded with config-hash provenance, so any re
 - As an engineer, I want to diff today's broken run against yesterday's good run in one command, so that I can find the setting that silently drifted (a wrong `aoa_scale`, a mismatched `product_version`) in seconds instead of hours.
 
 ### 4.3 GUI Study Analytics Panel
-- **Description:** A GUI panel backed by the SQLite ledger that lets a user browse past studies/batches and re-plot any historical case — explicitly named in the README's v1.0 roadmap ("Study analytics panel in the GUI (SQLite-backed, re-plot any past case)"). No GUI panel currently reads from the ledger; the existing Charts/Stats/Results panels operate on the current in-memory (Excel-derived) dataset only.
+- **Description:** A GUI panel backed by the SQLite ledger that lets a user browse past studies/batches and re-plot any historical case — explicitly named in the README's v1.0 roadmap ("Study analytics panel in the GUI (SQLite-backed, re-plot any past case)").
 - **Priority:** High
-- **Status:** Planned
+- **Status:** Partial — **update (v1.0.0-alpha.4):** a read-only Dashboard "Study Summary" widget shipped, rendering `Orchestrator.current_study_summary` (total/successful/failed/retries, best L/D, highest lift, lowest drag, fastest convergence, deterministic warnings) immediately after a batch finishes. This satisfies the "at a glance, right now" need but **not** the ledger-backed, cross-batch historical browsing originally scoped here — no panel reads from the SQLite ledger yet, and there is still no way to revisit a past study without its original workbook. That larger piece remains genuinely Planned.
 - **Dependencies:** 4.1, 4.2, 5.6, 5.7
 
 **User stories**
@@ -424,7 +426,7 @@ Non-functional work protecting the guarantees the rest of this backlog depends o
 | 3. Telemetry & Monitoring | 3.3 Transcript Encoding Auto-Detection | Medium | Complete |
 | 4. Data Provenance | 4.1 Batch/Case/Iteration Ledger Schema | High | Complete |
 | 4. Data Provenance | 4.2 Config-Hash Provenance & Diff | Medium | Complete |
-| 4. Data Provenance | 4.3 GUI Study Analytics Panel | High | **Planned** |
+| 4. Data Provenance | 4.3 GUI Study Analytics Panel | High | Partial (Dashboard widget shipped; ledger-backed history still planned) |
 | 5. GUI Shell | 5.1 Project Explorer & Dashboard | High | Complete |
 | 5. GUI Shell | 5.2 Queue Management | Critical | Complete |
 | 5. GUI Shell | 5.3 Live Monitor Panel | High | Complete |

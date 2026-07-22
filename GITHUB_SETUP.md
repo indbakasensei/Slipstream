@@ -1,5 +1,12 @@
 # Pushing Slipstream to GitHub (Windows / PowerShell)
 
+> **Historical record.** This documents the *original* v0.8.0 first push to
+> GitHub. The repository already exists and has an established history and
+> remote — the "Create the empty repository" / `git init` steps below no
+> longer apply for ongoing work. See "Everyday updates" at the bottom for
+> the actual day-to-day workflow, or `docs/RELEASE_CHECKLIST.md` for
+> release tagging.
+
 ## One-time prerequisites
 1. Install Git: https://git-scm.com/download/win  (defaults are fine).
    Verify in a new PowerShell:  `git --version`

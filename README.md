@@ -2,7 +2,7 @@
 
 **Excel-driven parametric wing studies with a professional engineering GUI, a live-streaming simulation monitor, a SQLite provenance ledger, and a battle-tested automation engine underneath.**
 
-`Apache-2.0` · `100% local` · `no telemetry` · `no cloud` · `33/33 tests pass`
+`Apache-2.0` · `100% local` · `no telemetry` · `no cloud` · `146/146 tests pass`
 
 ```bash
 pip install -r requirements.txt -r requirements-gui.txt
@@ -130,7 +130,7 @@ pip install -r requirements.txt
 # Install the desktop GUI (add if you want the desktop app)
 pip install -r requirements-gui.txt
 
-# Confirm 33/33 tests pass
+# Confirm all tests pass (146/146 as of v1.0.0-rc1)
 python -m pytest tests/ -q
 ```
 
@@ -205,7 +205,7 @@ python main.py run
 │─────────────────────────────────────────────────────────────────────────│
 │                       LOG · Statistics (tabbed)                          │
 │─────────────────────────────────────────────────────────────────────────│
-│ engine: case 2/8 — r003_aoa0_v30 · queue: 6 pending · v0.9.0             │
+│ engine: case 2/8 — r003_aoa0_v30 · queue: 6 pending · v1.0.0-rc1         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -709,31 +709,40 @@ Full troubleshooting matrix in [`docs/slipstream_tutorial.html`](docs/slipstream
 
 **v0.8 (shipped)** — GUI shell, live monitor with per-chunk progress, results/charts/images/stats panels
 
-**v0.9 (shipped — 33/33 tests)**
+**v0.9 (shipped)**
 - ✅ M1 — `aoa_scale`, `doctor`, physics linter, mesh-cache hardening
 - ✅ M2 — per-iteration telemetry tap, live residuals plot, UTF-16 support, sub-chunk iteration, stale-file cleanup, license cascade detector
 - ✅ M3 — SQLite ledger with config-hash provenance, per-iteration storage, 5 query commands
 
-**v1.0 (next)**
-- CI pipeline on GitHub Actions (Ubuntu + Windows, 3.11 + 3.12)
-- Study analytics panel in the GUI (SQLite-backed, re-plot any past case)
-- NACA 0012 validation as a second-geometry portfolio proof point
-- README/USAGE/CONTRIBUTING polish
+**v1.0.0-alpha.1 – alpha.7 (shipped)**
+- ✅ alpha.1 — CI pipeline on GitHub Actions (Ubuntu + Windows, 3.11 + 3.12); behavioral test hardening for `config`/`excel_manager`/`state`/`doctor`
+- ✅ alpha.2 — Centralized error formatting (CLI, GUI dialogs, `doctor`)
+- ✅ alpha.3 — Study Analytics: post-batch `StudySummary` (best L/D, retries, warnings, …)
+- ✅ alpha.4 — Study Summary panel on the GUI Dashboard (read-only view of the analytics above)
+- ✅ alpha.5 — Project & Study Management: project folders, metadata, recent-projects, Project Selector
+- ✅ alpha.6 — Packaging: PyInstaller one-folder Windows build, release scripts, centralized versioning
+- ✅ alpha.7 — Benchmark validation framework (`tools/validation/`): MAE/RMSE/max-error comparison + plots against a reference dataset
 
-**Future**
+**v1.0.0-rc1 (current)** — documentation audit, version-consistency pass, release notes, changelog, QA guide, release metadata (this release)
+
+**Remaining before a final v1.0.0 tag**
+- NACA 0012 validation as a second-geometry portfolio proof point (the *framework* to do this shipped in alpha.7; the actual benchmark run has not — see [`docs/validation/VALIDATION.md`](docs/validation/VALIDATION.md), which is currently a template)
+- A dedicated USAGE guide and CONTRIBUTING guide as standalone files (currently folded into this README)
+
+**Future** (tracked in [`docs/CFD_PLATFORM_BLUEPRINT.md`](docs/CFD_PLATFORM_BLUEPRINT.md), explicitly out of scope through v1.0)
 - Interactive 3D viewer with PyVista (rotate/pan/zoom pressure and velocity fields, slice planes, streamlines)
 - PDF report generator
 - Multi-turbulence-model support (LES/DES for cases where RANS stalls)
 - OpenFOAM backend (fully free CFD path, no ANSYS required)
 
-Full blueprint: [`CFD_PLATFORM_BLUEPRINT.md`](CFD_PLATFORM_BLUEPRINT.md).
+Full blueprint: [`docs/CFD_PLATFORM_BLUEPRINT.md`](docs/CFD_PLATFORM_BLUEPRINT.md). Full backlog: [`docs/PRODUCT_BACKLOG.md`](docs/PRODUCT_BACKLOG.md).
 
 ---
 
 ## Contributing
 
 1. Fork the repo, create a feature branch
-2. Run `python -m pytest tests/ -q` — must show `33 passed` (or more, if you add tests)
+2. Run `python -m pytest tests/ -q` — must show all tests passing (146/146 as of v1.0.0-rc1; more if you add tests)
 3. Follow the existing code style: type hints everywhere, docstrings on public functions, small classes with narrow responsibilities
 4. Open a pull request describing what problem you solved
 
@@ -742,7 +751,7 @@ The codebase is deliberately over-commented for readers who are also learning CF
 ### Running the test suite
 
 ```bash
-# All 33 tests
+# The full suite (146 tests as of v1.0.0-rc1)
 python -m pytest tests/ -q
 
 # Just the M3 SQLite tests
@@ -765,6 +774,7 @@ Built with:
 - [openpyxl](https://openpyxl.readthedocs.io/) — Excel read/write
 - [pandas](https://pandas.pydata.org/) — data handling
 - [PyYAML](https://pyyaml.org/) — config parsing
+- [matplotlib](https://matplotlib.org/) — benchmark comparison plots (validation tooling only)
 
 Slipstream is not affiliated with or endorsed by Ansys, Inc. ANSYS, Fluent, and Workbench are trademarks of Ansys, Inc.
 
