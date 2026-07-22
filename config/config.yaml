@@ -12,6 +12,7 @@ ansys:
   runwb2: "C:/Program Files/ANSYS Inc/ANSYS Student/v261/Framework/bin/Win64/RunWB2.exe"
 
 workbench:
+  aoa_scale: -1.0
   project_file: "C:/Users/tejas/Desktop/CFD_Auto/wing_project/wing_study.wbpj"
   system_name: "FFF"        # internal system name — find it with: python main.py wb-info
   aoa_parameter: "P1"       # WB parameter name OR its display text (e.g. "AOA")
@@ -31,6 +32,7 @@ fluent:
   processor_count: 4        # MAX 4 for ANSYS Student edition!
   product_version: "26.1.0" # pinned to your installed version
   ui_mode: "no_gui"         # no_gui | hidden_gui | gui  (gui = debugging only)
+  capture_images: true
 
   inlet_zone: "inlet"       # must match your Named Selection exactly
   inlet_type: "velocity_inlet"
@@ -66,7 +68,7 @@ solve:
   crosscheck_tolerance: 0.03  # warn if CL·q·A vs Lift force disagree by more
 
 excel:
-  file: "experiments.xlsx"
+  file: "C:/Users/tejas/Desktop/CFD_Auto/slipstream/experiments.xlsx"
   sheet: "Experiments"
   header_row: 1
   save_retries: 10          # workbook open in Excel? retry this many times…

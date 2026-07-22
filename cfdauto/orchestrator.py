@@ -45,6 +45,7 @@ from .models import (
     Experiment,
 )
 from .state import RunState
+from .study_analytics import StudySummary, analyze_study
 
 log = logging.getLogger("cfdauto.orchestrator")
 
@@ -93,6 +94,26 @@ class Orchestrator:
         self.ledger: Optional[Ledger] = None
         self._batch_id: Optional[int] = None
         self._current_case_pk: Optional[int] = None
+
+        # Sprint 3: Study Analytics.
+        #
+        # ``_retries_used`` counts retry attempts across the *current*
+        # run() call only — reset to 0 at the start of every run() so a
+        # count can never leak from one study into the next.
+        #
+        # ``_current_study_summary`` always reflects the most recently
+        # *completed call* to run(): reset to None at the start of every
+        # run(), then populated at every non-raising return point (full
+        # completion, an early "Stop after current case", the
+        # license-lockout cascade halt, or the trivial "nothing to do"
+        # case) — in the early-stop cases this is a deliberately *partial*
+        # summary, with StudyWarning entries flagging rows that never
+        # finished. It is left as None only if run() raises before
+        # reaching its own bookkeeping (e.g. a FrameworkError abort from
+        # bad config/environment) — in that scenario the raised exception
+        # itself is the caller's signal that no analytics are available.
+        self._retries_used: int = 0
+        self._current_study_summary: Optional[StudySummary] = None
         try:
             self.ledger = Ledger(cfg.work_dir() / "slipstream.db")
             # Route fluent.iteration events into the DB in real time.
@@ -130,6 +151,10 @@ class Orchestrator:
             Zero-arg callable polled *between* cases; return True to finish
             the current case and stop ("Stop after current case").
         """
+        # Sprint 3: never let a retry count or summary leak between studies.
+        self._retries_used = 0
+        self._current_study_summary = None
+
         todo = self.excel.pending(retry_failed=retry_failed,
                                   rerun_stale_running=self.cfg.runtime.rerun_stale_running)
         if only_rows is not None:
@@ -137,6 +162,7 @@ class Orchestrator:
         if not todo:
             log.info("Nothing to do — every row is DONE or SKIP. "
                      "(Use --retry-failed to re-run FAILED rows.)")
+            self._current_study_summary = self._finalize_study_summary([])
             self.bus.emit("batch.finished", ok=0, failed=0, stopped=False)
             return 0
         if max_cases > 0:
@@ -237,7 +263,31 @@ class Orchestrator:
             except Exception:
                 pass
         self.bus.emit("batch.finished", ok=done, failed=failures, stopped=stopped)
+        self._current_study_summary = self._finalize_study_summary([e.row for e in todo])
         return failures
+
+    # ------------------------------------------------------------------ #
+    def _finalize_study_summary(self, rows: List[int]) -> StudySummary:
+        """Compute (and log) the Sprint 3 analytics summary for this run()
+        call. study_analytics.analyze_study() is purely computational and
+        never logs anything itself — this is the one place that decides
+        what to do with its result, matching every other auxiliary system
+        in this class (ledger, telemetry): never fatal to the batch."""
+        try:
+            summary = analyze_study(self.excel, rows, retries=self._retries_used)
+        except Exception:
+            log.debug("Study analytics failed — non-fatal", exc_info=True)
+            return StudySummary(total_cases=len(set(rows)), retries=self._retries_used)
+
+        log.info(
+            "Study summary: %d/%d succeeded, %d failed, %d retry attempt(s)%s",
+            summary.successful_cases, summary.total_cases, summary.failed_cases,
+            summary.retries,
+            (f", best L/D={summary.best_l_over_d:.3f} (row {summary.best_l_over_d_row})"
+             if summary.best_l_over_d is not None else ""))
+        for w in summary.warnings:
+            log.warning("Study analytics [%s]: %s", w.code.value, w.message)
+        return summary
 
     # ------------------------------------------------------------------ #
     def _run_one(self, exp: Experiment) -> bool:
@@ -266,6 +316,7 @@ class Orchestrator:
             last_err: Optional[BaseException] = None
             for attempt in range(1, attempts + 1):
                 if attempt > 1:
+                    self._retries_used += 1   # Sprint 3: batch-wide retry count
                     log.warning("Retry %d/%d for row %d...",
                                 attempt - 1, attempts - 1, exp.row)
                 try:

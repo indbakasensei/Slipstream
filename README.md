@@ -41,11 +41,12 @@ The GUI is built on PySide6 + pyqtgraph. The engine (`cfdauto`) works with any F
 7. [Configuration reference](#configuration-reference)
 8. [Excel schedule format](#excel-schedule-format)
 9. [SQLite ledger (v0.9-M3)](#sqlite-ledger)
-10. [Architecture](#architecture)
-11. [Troubleshooting](#troubleshooting)
-12. [Roadmap](#roadmap)
-13. [Contributing](#contributing)
-14. [License and credits](#license-and-credits)
+10. [Study Analytics (v1.0.0-alpha.3)](#study-analytics)
+11. [Architecture](#architecture)
+12. [Troubleshooting](#troubleshooting)
+13. [Roadmap](#roadmap)
+14. [Contributing](#contributing)
+15. [License and credits](#license-and-credits)
 
 ---
 
@@ -402,6 +403,31 @@ The database is additive and non-fatal — if it fails to open or write, the bat
 
 ---
 
+## Study Analytics
+
+**What it is.** `cfdauto/study_analytics.py` is a small, read-only module that computes a `StudySummary` — a lightweight snapshot of one batch's results (how many cases succeeded/failed, the best-performing cases, and a list of deterministic warnings). It is purely computational: it never writes to Excel, never touches the ledger or a solver/Workbench controller, and never logs anything itself.
+
+**When it runs.** Automatically, once, at the very end of every `Orchestrator.run()` call — after all of that call's cases have already been written to the Excel workbook (or the batch stopped early / hit the license-lockout cascade halt / had nothing queued at all). It never runs mid-batch and never changes what happens during a solve.
+
+**How it works.** The orchestrator hands it the exact row numbers it queued for that `run()` call; the module re-reads their current Status/CL/CD/Lift/Drag/Iterations/Converged straight back out of the workbook via `ExcelManager`'s existing read methods — no new Excel columns, no schema change. The orchestrator then logs the result (one INFO summary line plus one WARNING per finding) — logging is the orchestrator's job, not the analytics module's.
+
+**Metrics produced (`StudySummary`):**
+- `total_cases`, `successful_cases`, `failed_cases`
+- `best_l_over_d` (+ the row it came from), `highest_lift_n` (+ row), `lowest_drag_n` (+ row)
+- `fastest_convergence_iterations` (+ row) — `None` when no successful, *converged* case has iteration data
+- `retries` — retry attempts across the whole batch (Excel/the ledger don't track this per-case, so it's a batch total, not per-row)
+- `warnings: list[StudyWarning]` — each a `(code, message)` pair from a fixed, explicit rule (never a subjective heuristic): `EMPTY_STUDY`, `CASE_FAILED`, `RETRIES_OCCURRED`, `UNCONVERGED_SUCCESS`, `ROW_STILL_RUNNING`, `ROW_STILL_PENDING`
+
+**Tie-breaking.** If multiple rows tie exactly on a "best" metric, the **first row encountered** (ascending row number) wins, consistently, every time — never an arbitrary later row.
+
+**Accessing it.** `Orchestrator._current_study_summary` always holds the most recently *completed* `run()` call's summary (reset to `None` at the start of every `run()`, then populated at every normal return — including a partial summary, with warnings, if the batch stopped early). It stays `None` only if `run()` raises before finishing its own bookkeeping (a `FrameworkError` abort from bad config/environment) — the raised exception is the caller's signal in that case.
+
+**Limitations in this version.** No GUI panel yet, no historical/cross-batch view, and no persistence of the summary itself (it's recomputed fresh from Excel each time, and discarded when the process exits). The `average_l_over_d` / `average_cl` / `average_cd` / `average_iterations` fields exist on `StudySummary` today but are reserved for a future sprint — always `None` in v1.
+
+**Future roadmap.** A GUI panel that renders this summary, and a ledger-backed historical view across many past batches, are tracked as a separate, larger feature in [`docs/PRODUCT_BACKLOG.md`](docs/PRODUCT_BACKLOG.md) (§4.3 — GUI Study Analytics Panel) — not part of this module.
+
+---
+
 ## Architecture
 
 ```
@@ -430,6 +456,8 @@ slipstream/
 │   ├── linter.py            # v0.9-M1: physics pre-flight
 │   ├── ledger.py            # v0.9-M3: SQLite ledger + config hashing
 │   ├── ledger_cli.py        # v0.9-M3: query/diff-config/export-study
+│   ├── error_formatting.py  # v1.0.0-alpha.2: centralized error explanations
+│   ├── study_analytics.py   # v1.0.0-alpha.3: post-batch StudySummary (read-only)
 │   └── logging_setup.py     # per-case log files
 │
 ├── gui/                     # PySide6 desktop shell
