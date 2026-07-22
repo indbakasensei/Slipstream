@@ -42,11 +42,12 @@ The GUI is built on PySide6 + pyqtgraph. The engine (`cfdauto`) works with any F
 8. [Excel schedule format](#excel-schedule-format)
 9. [SQLite ledger (v0.9-M3)](#sqlite-ledger)
 10. [Study Analytics (v1.0.0-alpha.3)](#study-analytics)
-11. [Architecture](#architecture)
-12. [Troubleshooting](#troubleshooting)
-13. [Roadmap](#roadmap)
-14. [Contributing](#contributing)
-15. [License and credits](#license-and-credits)
+11. [Projects (v1.0.0-alpha.5)](#projects)
+12. [Architecture](#architecture)
+13. [Troubleshooting](#troubleshooting)
+14. [Roadmap](#roadmap)
+15. [Contributing](#contributing)
+16. [License and credits](#license-and-credits)
 
 ---
 
@@ -428,6 +429,49 @@ The database is additive and non-fatal — if it fails to open or write, the bat
 
 ---
 
+## Projects
+
+**Purpose.** `cfdauto/project_manager.py` (v1.0.0-alpha.5) adds a lightweight, optional organizational layer *above* the existing `config.yaml` workflow — a way to keep multiple CFD studies cleanly separated on disk, with recent-project tracking, instead of managing loose `config.yaml`/`experiments.xlsx` pairs by hand. It does **not** change how a study executes: opening a project simply points the existing config-loading flow at that project's `config/config.yaml`, unchanged.
+
+### Project directory layout
+
+```
+Project/
+├── config/
+│   └── config.yaml      # exactly the same config.yaml the engine always used
+├── data/                # optional: reference datasets, notes, imports
+├── docs/                # optional: project-specific documentation
+├── outputs/             # optional: exported CSVs, reports
+├── runs/                # runtime.work_dir usually points here
+└── project.json         # metadata: name, description, created, last_opened,
+                          #           project_version, created_with, tags
+```
+
+`project.json` stores only lightweight metadata — never simulation results, config values, or anything the SQLite ledger already owns.
+
+### Creating a project
+
+GUI: **File ▸ Projects…** (`Ctrl+Shift+O`) ▸ enter a name ▸ **Create New…** ▸ pick a parent folder. Slipstream creates the standard layout and `project.json` immediately. A freshly created project has no `config.yaml` yet — add one at `<project>/config/config.yaml` before opening it (the dialog tells you this explicitly if you try to open it too soon).
+
+Programmatically:
+
+```python
+from cfdauto.project_manager import create_project
+create_project("C:/CFD/wing_v2", name="Wing v2", description="Flap sweep")
+```
+
+### Opening a project
+
+GUI: **File ▸ Projects…** ▸ **Open Existing…** (browse to any valid project folder) or double-click an entry under **Recent projects**. If `config/config.yaml` exists, Slipstream loads it exactly the way `File ▸ Open Project…` always has; opening also bumps the project's `last_opened` timestamp.
+
+An invalid project (missing standard folders, missing or corrupt `project.json`) is rejected with every problem listed at once — never just the first one found.
+
+### Recent projects
+
+Every successful open/create is recorded, most-recent-first, de-duplicated (opening the same project again moves it to the top rather than adding a second entry), capped at 10 entries. The list lives in your user data directory (`%APPDATA%/Slipstream/recent_projects.json` on Windows, `~/.slipstream/recent_projects.json` elsewhere) — a corrupt or missing recents file is simply treated as an empty list, never an error.
+
+---
+
 ## Architecture
 
 ```
@@ -458,6 +502,7 @@ slipstream/
 │   ├── ledger_cli.py        # v0.9-M3: query/diff-config/export-study
 │   ├── error_formatting.py  # v1.0.0-alpha.2: centralized error explanations
 │   ├── study_analytics.py   # v1.0.0-alpha.3: post-batch StudySummary (read-only)
+│   ├── project_manager.py   # v1.0.0-alpha.5: project folders + metadata + recents
 │   └── logging_setup.py     # per-case log files
 │
 ├── gui/                     # PySide6 desktop shell
@@ -465,6 +510,7 @@ slipstream/
 │   ├── theme.py
 │   ├── state.py             # AppState (dataset, config, running flag)
 │   ├── event_bridge.py      # bus → Qt signals bridge
+│   ├── project_selector_dialog.py  # v1.0.0-alpha.5: Open Recent/Existing/Create New
 │   ├── panels/
 │   │   ├── dashboard.py, queue_panel.py, monitor.py, params_panel.py,
 │   │   │   results_table.py, charts_panel.py, stats_panel.py,

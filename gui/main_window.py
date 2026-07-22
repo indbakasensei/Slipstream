@@ -24,8 +24,9 @@ from typing import Optional, Set
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (QDockWidget, QFileDialog, QLabel, QMainWindow,
-                               QMessageBox, QTabWidget, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QDialog, QDockWidget, QFileDialog, QLabel,
+                               QMainWindow, QMessageBox, QTabWidget,
+                               QVBoxLayout, QWidget)
 
 import cfdauto
 from cfdauto.error_formatting import format_error
@@ -144,7 +145,9 @@ class MainWindow(QMainWindow):
                                 triggered=self._open_dialog)
         self.act_reload = QAction("Reload Project", self, shortcut="Ctrl+R",
                                   triggered=self._reload)
-        m_file.addActions([self.act_open, self.act_reload])
+        self.act_projects = QAction("Projects…", self, shortcut="Ctrl+Shift+O",
+                                    triggered=self._open_project_selector)
+        m_file.addActions([self.act_open, self.act_reload, self.act_projects])
         m_file.addSeparator()
         m_file.addAction(QAction("Exit", self, shortcut="Ctrl+Q",
                                  triggered=self.close))
@@ -277,6 +280,25 @@ class MainWindow(QMainWindow):
     def _reload(self) -> None:
         if self.state.config_path:
             self._load(str(self.state.config_path))
+
+    def _open_project_selector(self) -> None:
+        """Sprint 5: Open Recent / Open Existing / Create New. Purely a
+        front door to the existing config.yaml flow — a selected/created
+        project hands off to the unchanged self._load(); nothing about how
+        a study runs is touched here."""
+        from gui.project_selector_dialog import ProjectSelectorDialog
+        dlg = ProjectSelectorDialog(self)
+        if dlg.exec() == QDialog.Accepted and dlg.selected_project_root:
+            root = dlg.selected_project_root
+            cfg_path = root / "config" / "config.yaml"
+            if cfg_path.exists():
+                self._load(str(cfg_path))
+            else:
+                QMessageBox.information(
+                    self, "Project created",
+                    f"Project '{root.name}' was created successfully but "
+                    f"still requires a config.yaml before it can be "
+                    f"opened.\n\nAdd one at:\n{cfg_path}")
 
     # ------------------------------------------------------------------ #
     # Run control
