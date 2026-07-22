@@ -67,12 +67,19 @@ class EngineWorker(QThread):
         failed = number of queued cases that never ran.
     fatalError(str)
         A FrameworkError/ConfigError message — the batch did not run.
+    studySummaryReady(object)
+        Sprint 4 — the engine's ``Orchestrator.current_study_summary``
+        (a :class:`cfdauto.study_analytics.StudySummary`, or ``None``),
+        read *after* run() returns/raises and re-emitted unchanged — this
+        worker never recomputes analytics, only relays the read-only
+        property across the thread boundary.
     """
 
     engineEvent = Signal(object)
     logLine = Signal(int, str)
     batchFinished = Signal(int, int, bool)
     fatalError = Signal(str)
+    studySummaryReady = Signal(object)
 
     def __init__(self, cfg: Config, excel: ExcelManager, *,
                  max_cases: int = 0, retry_failed: bool = False,
@@ -104,6 +111,7 @@ class EngineWorker(QThread):
         root = logging.getLogger()
         root.setLevel(logging.DEBUG)          # defensive: GUI may run before
         root.addHandler(handler)              # any setup_logging() call
+        orch: Optional[Orchestrator] = None
         try:
             wb, fluent = build_controllers(self.cfg, bus=bus)
             orch = Orchestrator(self.cfg, self.excel, wb, fluent, bus=bus)
@@ -124,6 +132,11 @@ class EngineWorker(QThread):
             self.fatalError.emit(self._safe_render(exc))
             self.batchFinished.emit(0, 0, False)
         finally:
+            # Sprint 4: relay whatever the orchestrator's read-only property
+            # holds — None if it never got far enough to populate one (see
+            # Orchestrator.current_study_summary's docstring).
+            self.studySummaryReady.emit(
+                getattr(orch, "current_study_summary", None))
             logging.getLogger().removeHandler(handler)
 
     def _safe_render(self, exc: BaseException) -> str:

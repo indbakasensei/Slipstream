@@ -106,6 +106,14 @@ def test_full_gui_mock_batch(qapp, project):
         # -- log console received engine lines ------------------------------
         assert "Batch finished" in win.log_panel.text.toPlainText()
 
+        # -- Sprint 4: Study Summary panel received the real, non-recomputed
+        # Orchestrator.current_study_summary via studySummaryReady ---------
+        summary_panel = win.dashboard.study_summary
+        assert summary_panel.cards["total"].value_lbl.text() == "8"
+        assert summary_panel.cards["successful"].value_lbl.text() == "8"
+        assert summary_panel.cards["failed"].value_lbl.text() == "0"
+        assert summary_panel.updated_lbl.text().startswith("Last updated:")
+
         # -- resume semantics: second run finds nothing to do ---------------
         win.start_run()
         _pump_until(qapp, lambda: not win.state.running, 20)

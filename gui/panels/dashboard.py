@@ -6,6 +6,8 @@ same AppState/dataset every other panel uses."""
 
 from __future__ import annotations
 
+from typing import Optional
+
 import pyqtgraph as pg
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QListWidget,
@@ -13,10 +15,11 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QListWidget,
                                QWidget)
 
 from cfdauto.events import Event
+from cfdauto.study_analytics import StudySummary
 from gui import theme
 from gui.panels.charts_panel import series_groups
 from gui.state import AppState
-from gui.widgets import PipelineWidget, StatCard
+from gui.widgets import PipelineWidget, StatCard, StudySummaryPanel
 
 
 class DashboardPanel(QWidget):
@@ -67,6 +70,9 @@ class DashboardPanel(QWidget):
         self.recent = QListWidget()
         self.recent.setMaximumHeight(120)
 
+        # Sprint 4: read-only view of Orchestrator.current_study_summary.
+        self.study_summary = StudySummaryPanel()
+
         grid = QGridLayout(self)
         grid.setContentsMargins(14, 12, 14, 12)
         grid.setVerticalSpacing(10)
@@ -80,6 +86,7 @@ class DashboardPanel(QWidget):
         lbl = QLabel("Recent events"); lbl.setProperty("h2", True)
         rv.addWidget(lbl); rv.addWidget(self.recent); rv.addStretch(1)
         grid.addLayout(rv, 5, 1)
+        grid.addWidget(self.study_summary, 6, 0, 1, 2)
         grid.setColumnStretch(0, 3)
         grid.setColumnStretch(1, 2)
         grid.setRowStretch(5, 1)
@@ -145,6 +152,13 @@ class DashboardPanel(QWidget):
         self.recent.insertItem(0, text)
         while self.recent.count() > 8:
             self.recent.takeItem(self.recent.count() - 1)
+
+    # -- Sprint 4: Study Summary -------------------------------------------
+    def set_study_summary(self, summary: Optional[StudySummary]) -> None:
+        """Passthrough to the read-only Study Summary widget — connected to
+        EngineWorker.studySummaryReady in main_window.py. Never recomputes
+        anything; just forwards whatever the engine already computed."""
+        self.study_summary.set_summary(summary)
 
 
 def _g(v) -> str:

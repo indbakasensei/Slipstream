@@ -299,6 +299,7 @@ class MainWindow(QMainWindow):
         self.worker.batchFinished.connect(self._on_finished)
         self.worker.fatalError.connect(
             lambda msg: QMessageBox.critical(self, "Batch aborted", msg))
+        self.worker.studySummaryReady.connect(self.dashboard.set_study_summary)
         self.state.set_running(True)
         self.sb_engine.setText(
             "engine: running" + ("  (MOCK)" if self.state.cfg.runtime.mock else ""))

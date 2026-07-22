@@ -137,6 +137,15 @@ class Orchestrator:
         except Exception:
             log.debug("record_iteration failed — non-fatal", exc_info=True)
 
+    @property
+    def current_study_summary(self) -> Optional[StudySummary]:
+        """Read-only view of the most recently completed run() call's
+        Sprint 3 analytics summary. Callers (e.g. the GUI) should use this
+        property rather than the private ``_current_study_summary``
+        attribute — see that attribute's docstring in ``__init__`` for the
+        exact lifecycle contract (None/partial/complete)."""
+        return self._current_study_summary
+
     # ------------------------------------------------------------------ #
     def run(self, max_cases: int = 0, retry_failed: bool = False,
             only_rows: Optional[set[int]] = None,
