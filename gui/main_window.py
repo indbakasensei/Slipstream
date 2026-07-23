@@ -79,7 +79,7 @@ class MainWindow(QMainWindow):
         self.images = ImagesPanel(self.state)
         self.queue = QueuePanel(self.state)
         self.params = ParamsPanel(self.state)
-        self.monitor = MonitorPanel()
+        self.monitor = MonitorPanel(self.state.context)
         self.log_panel = LogConsolePanel()
         self.stats = StatsPanel(self.state)
         self.explorer = ExplorerPanel(self.state)

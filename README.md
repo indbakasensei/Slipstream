@@ -505,6 +505,12 @@ slipstream/
 │   ├── error_formatting.py  # v1.0.0-alpha.2: centralized error explanations
 │   ├── study_analytics.py   # v1.0.0-alpha.3: post-batch StudySummary (read-only)
 │   ├── project_manager.py   # v1.0.0-alpha.5: project folders + metadata + recents
+│   ├── simulation_context.py # v2.0.0-dev: runtime template-metadata source of truth
+│   ├── platform/            # v2.0.0-dev: universal CFD platform metadata
+│   │   ├── parameters.py    #   ParameterDefinition (generic inputs)
+│   │   ├── metrics.py       #   MetricDefinition (generic outputs)
+│   │   ├── templates.py     #   SimulationTemplate + External Aerodynamics
+│   │   └── registry.py      #   TemplateRegistry (see docs/PLATFORM_ARCHITECTURE.md)
 │   └── logging_setup.py     # per-case log files
 │
 ├── gui/                     # PySide6 desktop shell

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (QGridLayout, QLabel, QProgressBar, QTabWidget,
                                QVBoxLayout, QWidget)
 
 from cfdauto.events import Event
+from cfdauto.platform import get_default_template
 from gui import theme
 from gui.widgets import PipelineWidget
 
@@ -40,8 +41,18 @@ _RES_CHANNELS = [
 
 
 class MonitorPanel(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, context=None, parent=None):
         super().__init__(parent)
+        # Phase 2: the force-plot legend labels come from the template's
+        # metric metadata rather than duplicated literals. ``context`` is a
+        # SimulationContext when the main window supplies one; a bare
+        # MonitorPanel() (e.g. in tests) falls back to the registry default.
+        template = context.template if context is not None else get_default_template()
+        cl_metric = template.metric("cl")
+        cd_metric = template.metric("cd")
+        cl_name = cl_metric.display_name if cl_metric else "CL"
+        cd_name = cd_metric.display_name if cd_metric else "CD"
+
         self.case_lbl = QLabel("No case running")
         self.case_lbl.setProperty("h1", True)
         self.info_lbl = QLabel("")
@@ -57,9 +68,9 @@ class MonitorPanel(QWidget):
         self.forces.setLabel("bottom", "iteration")
         self.forces.addLegend(offset=(-10, 10))
         self.cl_curve = self.forces.plot(
-            [], [], pen=pg.mkPen(theme.ACCENT, width=2), name="CL")
+            [], [], pen=pg.mkPen(theme.ACCENT, width=2), name=cl_name)
         self.cd_curve = self.forces.plot(
-            [], [], pen=pg.mkPen("#e8a33d", width=2), name="CD")
+            [], [], pen=pg.mkPen("#e8a33d", width=2), name=cd_name)
 
         # --- Residuals plot (log-y) -------------------------------------- #
         self.residuals = pg.PlotWidget(title="Scaled residuals")

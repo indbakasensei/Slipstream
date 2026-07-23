@@ -26,6 +26,7 @@ from cfdauto.config import Config, load_config
 from cfdauto.events import Event
 from cfdauto.excel_manager import ExcelManager
 from cfdauto.logging_setup import setup_logging
+from cfdauto.simulation_context import SimulationContext
 
 log = logging.getLogger("gui.state")
 
@@ -51,6 +52,11 @@ class AppState(QObject):
         self.running = False
         self.selected_row = -1
         self.mock_override: Optional[bool] = None   # toolbar toggle
+        # Phase 2: runtime metadata source of truth. Always External
+        # Aerodynamics for now (resolved via the registry, not hardcoded);
+        # panels read parameter/metric labels, units, and bounds from this
+        # instead of duplicating literals.
+        self.context = SimulationContext.default()
 
     # ------------------------------------------------------------------ #
     # Project lifecycle
@@ -59,6 +65,9 @@ class AppState(QObject):
         """(Re)load config + workbook; raises ConfigError on bad input."""
         self.config_path = Path(config_path)
         self.cfg = load_config(self.config_path)
+        # Refresh the runtime context with this project's identity (still
+        # the External Aerodynamics template — Phase 2 is single-template).
+        self.context = SimulationContext.default(project=self.config_path.stem)
         # Same logging contract as the CLI: root at DEBUG, rotating file in
         # <work_dir>/logs. The Qt console handler attaches per-run on top.
         setup_logging(self.cfg.work_dir() / "logs")

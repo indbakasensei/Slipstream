@@ -13,9 +13,16 @@ from PySide6.QtWidgets import (QDoubleSpinBox, QFormLayout, QGroupBox,
                                QHBoxLayout, QLabel, QMessageBox, QPushButton,
                                QVBoxLayout, QWidget)
 
+from cfdauto.platform import ParameterDefinition
 from gui.state import AppState
 
 _EDITABLE = {"PENDING", "FAILED", "SKIP", ""}
+
+# Phase 2: velocity is physically unbounded in the template
+# (ParameterDefinition.maximum is None); the spin box still needs a finite
+# editing cap. This is the only parameter-metadata literal that remains
+# GUI-local — it is a UI editing affordance, not a domain constraint.
+_GUI_MAX_UNBOUNDED = 5000.0
 
 
 def _spin(lo: float, hi: float, dec: int, val: float = 0.0) -> QDoubleSpinBox:
@@ -25,22 +32,45 @@ def _spin(lo: float, hi: float, dec: int, val: float = 0.0) -> QDoubleSpinBox:
     return s
 
 
+def _label_for(pdef: ParameterDefinition) -> str:
+    """The row label a parameter shows in the form (e.g. 'AOA [deg]') —
+    built from the template metadata, not a hardcoded string."""
+    return f"{pdef.display_name} [{pdef.unit}]"
+
+
+def _spin_for(pdef: ParameterDefinition, value: float | None = None
+              ) -> QDoubleSpinBox:
+    """A spin box whose range and (optionally) default come straight from
+    the ParameterDefinition. ``value`` overrides the definition's default
+    for the selected-row editor, which starts blank at 0.0."""
+    lo = pdef.minimum if pdef.minimum is not None else -_GUI_MAX_UNBOUNDED
+    hi = pdef.maximum if pdef.maximum is not None else _GUI_MAX_UNBOUNDED
+    val = value if value is not None else float(pdef.default_value or 0.0)
+    return _spin(lo, hi, 2, val)
+
+
 class ParamsPanel(QWidget):
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
         self.state = state
         self._wbp_spins: Dict[str, QDoubleSpinBox] = {}
 
+        # Phase 2: pull the AOA/velocity metadata (labels, units, bounds,
+        # defaults) from the runtime template context rather than hardcoding
+        # it here. Same values, single source of truth.
+        aoa_def = state.context.parameter("aoa")
+        vel_def = state.context.parameter("velocity")
+
         # -- selected row editor ------------------------------------------#
         self.sel_box = QGroupBox("Selected experiment")
         self.sel_lbl = QLabel("Select a row in the Queue")
         self.sel_lbl.setProperty("hint", True)
-        self.aoa = _spin(-90, 90, 2)
-        self.vel = _spin(0.01, 5000, 2)
+        self.aoa = _spin_for(aoa_def, value=0.0)
+        self.vel = _spin_for(vel_def, value=0.0)
         self.form = QFormLayout()
         self.form.addRow(self.sel_lbl)
-        self.form.addRow("AOA [deg]", self.aoa)
-        self.form.addRow("Velocity [m/s]", self.vel)
+        self.form.addRow(_label_for(aoa_def), self.aoa)
+        self.form.addRow(_label_for(vel_def), self.vel)
         self.apply_btn = QPushButton("Apply changes")
         self.skip_btn = QPushButton("Toggle SKIP")
         row = QHBoxLayout(); row.addWidget(self.apply_btn); row.addWidget(self.skip_btn)
@@ -48,11 +78,11 @@ class ParamsPanel(QWidget):
 
         # -- add-new ------------------------------------------------------#
         self.add_box = QGroupBox("Add experiment")
-        self.new_aoa = _spin(-90, 90, 2, 0.0)
-        self.new_vel = _spin(0.01, 5000, 2, 20.0)
+        self.new_aoa = _spin_for(aoa_def)           # uses the template default (0.0)
+        self.new_vel = _spin_for(vel_def)           # uses the template default (20.0)
         af = QFormLayout(self.add_box)
-        af.addRow("AOA [deg]", self.new_aoa)
-        af.addRow("Velocity [m/s]", self.new_vel)
+        af.addRow(_label_for(aoa_def), self.new_aoa)
+        af.addRow(_label_for(vel_def), self.new_vel)
         self.add_btn = QPushButton("＋ Add row")
         self.dup_btn = QPushButton("Duplicate selected")
         ar = QHBoxLayout(); ar.addWidget(self.add_btn); ar.addWidget(self.dup_btn)
