@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QHBoxLayout,
 
 from gui import theme
 from gui.state import AppState
+from gui.widgets import SectionHeader
 
 
 def _item(text: str, sort_value=None) -> QTableWidgetItem:
@@ -64,12 +65,16 @@ class QueuePanel(QWidget):
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(30)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._menu)
         self.table.itemSelectionChanged.connect(self._selection_changed)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(6, 6, 6, 6)
+        lay.setContentsMargins(theme.PANEL_MARGIN, theme.PANEL_MARGIN,
+                               theme.PANEL_MARGIN, theme.PANEL_MARGIN)
+        lay.setSpacing(theme.SPACE_SM)
+        lay.addWidget(SectionHeader("Queue", icon="▤"))
         lay.addLayout(bar)
         lay.addWidget(self.table)
 
@@ -112,8 +117,11 @@ class QueuePanel(QWidget):
                 text, sv = vals[name]
                 it = _item(text, sv if sv is not None else None)
                 if name == "Status":
-                    it.setForeground(theme.qcolor(text))
+                    col = theme.qcolor(text)
+                    it.setForeground(col)
                     f = it.font(); f.setBold(True); it.setFont(f)
+                    badge = QColor(col); badge.setAlpha(36)   # soft status "badge" tint
+                    it.setBackground(badge)
                 if name == "Conv" and text == "NO":
                     it.setForeground(QColor(theme.STATUS_COLORS["FAILED"]))
                 self.table.setItem(r, c, it)

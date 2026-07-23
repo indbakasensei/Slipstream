@@ -1,0 +1,51 @@
+"""SectionHeader — a small, reusable title bar used at the top of every
+dashboard/panel section (GUI Modernization, v1.0.0-rc2).
+
+Consistent typography and spacing everywhere it's used, instead of each
+panel hand-rolling its own QLabel + separator. Purely presentational —
+no signals, no state.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+
+from gui import theme
+
+
+class SectionHeader(QWidget):
+    """``icon`` is an optional single glyph/emoji, matching this app's
+    existing convention of Unicode-glyph icons (✓/✗/⚠/▶) rather than icon
+    font/resource files. ``separator`` draws a thin rule below the title."""
+
+    def __init__(self, title: str, icon: Optional[str] = None,
+                 separator: bool = True, parent=None):
+        super().__init__(parent)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(theme.SPACE_XS)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(theme.SPACE_SM)
+        if icon:
+            icon_lbl = QLabel(icon)
+            icon_lbl.setProperty("h2", True)
+            row.addWidget(icon_lbl)
+        self.title_lbl = QLabel(title)
+        self.title_lbl.setProperty("h2", True)
+        row.addWidget(self.title_lbl)
+        row.addStretch(1)
+        outer.addLayout(row)
+
+        if separator:
+            rule = QFrame()
+            rule.setFrameShape(QFrame.HLine)
+            rule.setStyleSheet(f"background: {theme.BORDER}; max-height: 1px;"
+                              f"border: none;")
+            outer.addWidget(rule)
+
+    def set_title(self, text: str) -> None:
+        self.title_lbl.setText(text)

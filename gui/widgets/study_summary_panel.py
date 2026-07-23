@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (QGridLayout, QGroupBox, QLabel, QListWidget,
 
 from cfdauto.study_analytics import StudySummary, WarningCode
 from gui.widgets.cards import StatCard
+from gui.widgets.collapsible_section import CollapsibleSection
 
 _EMPTY_STATE_TEXT = "Run a study to view summary statistics."
 
@@ -90,12 +91,15 @@ class StudySummaryPanel(QWidget):
         self.updated_lbl.setProperty("hint", True)
         v.addWidget(self.updated_lbl)
 
-        warn_hdr = QLabel("Warnings")
-        warn_hdr.setProperty("h2", True)
-        v.addWidget(warn_hdr)
+        # GUI Modernization (v1.0.0-rc2): warnings live inside a collapsible
+        # section so they don't permanently occupy space when there's
+        # nothing to show. self.warnings_list itself is unchanged — same
+        # QListWidget, same .count()/.item() behavior, regardless of
+        # whether the section is currently expanded or collapsed.
         self.warnings_list = QListWidget()
         self.warnings_list.setMaximumHeight(110)
-        v.addWidget(self.warnings_list)
+        self.warnings_section = CollapsibleSection("Warnings", self.warnings_list)
+        v.addWidget(self.warnings_section)
 
         self.set_summary(None)     # initial "no study yet" state
 

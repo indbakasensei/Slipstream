@@ -16,12 +16,37 @@ from PySide6.QtWidgets import QApplication
 BG_WINDOW = "#1e1f22"      # app background
 BG_PANEL = "#26282c"       # dock/panel surfaces
 BG_FIELD = "#2b2d31"       # inputs, tables
+BG_CARD = "#2a2c31"        # elevated surfaces (stat cards, section bodies)
 BG_HOVER = "#33363c"
 BORDER = "#3a3d43"
+BORDER_STRONG = "#4a4e57"
 TEXT = "#d7dae0"
 TEXT_DIM = "#9aa0aa"
 ACCENT = "#4f8cff"         # actions / selection
 ACCENT_DIM = "#33507f"
+
+# ---------------------------------------------------------------------------
+# Design tokens — the single source of truth for spacing/radius/type.
+# GUI Modernization (v1.0.0-rc2): every panel/widget should read these
+# instead of inventing its own margin/radius/font-size constant.
+# ---------------------------------------------------------------------------
+SPACE_XS = 4
+SPACE_SM = 8
+SPACE_MD = 16
+SPACE_LG = 24
+SPACE_XL = 32
+
+RADIUS = 10             # standard corner radius for cards/panels/buttons
+RADIUS_SM = 6           # tighter radius for small controls (inputs, chips)
+
+CARD_MARGIN = SPACE_MD    # internal padding for stat cards / section bodies
+PANEL_MARGIN = SPACE_SM   # internal padding for ordinary panels
+
+FONT_SIZE_H1 = 20          # page/section titles (was 17px, ad hoc)
+FONT_SIZE_H2 = 13          # sub-headers / group labels
+FONT_SIZE_BODY = 12        # default body text
+FONT_SIZE_SMALL = 11       # hints, captions, monospace log/console text
+FONT_SIZE_STAT = 26        # big numbers on stat cards
 
 # Status vocabulary — shared by queue table, chips, pipeline stages, cards.
 STATUS_COLORS = {
@@ -65,8 +90,8 @@ QMenuBar::item:selected, QMenu::item:selected {{ background: {ACCENT_DIM}; }}
 QMenu {{ background: {BG_PANEL}; border: 1px solid {BORDER}; }}
 
 QToolBar {{ background: {BG_PANEL}; border-bottom: 1px solid {BORDER};
-            spacing: 4px; padding: 3px; }}
-QToolButton {{ padding: 4px 8px; border-radius: 4px; }}
+            spacing: {SPACE_SM}px; padding: {SPACE_XS}px {SPACE_SM}px; }}
+QToolButton {{ padding: {SPACE_XS}px {SPACE_SM}px; border-radius: {RADIUS_SM}px; }}
 QToolButton:hover {{ background: {BG_HOVER}; }}
 QToolButton:disabled {{ color: {TEXT_DIM}; }}
 
@@ -89,29 +114,42 @@ QHeaderView::section {{ background: {BG_PANEL}; color: {TEXT_DIM};
 
 QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox {{
     background: {BG_FIELD}; border: 1px solid {BORDER};
-    border-radius: 4px; padding: 3px 6px; }}
+    border-radius: {RADIUS_SM}px; padding: 3px {SPACE_SM}px; }}
 QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus {{
     border-color: {ACCENT}; }}
 QComboBox QAbstractItemView {{ background: {BG_PANEL};
     selection-background-color: {ACCENT_DIM}; }}
 
 QPushButton {{ background: {BG_FIELD}; border: 1px solid {BORDER};
-               border-radius: 4px; padding: 5px 14px; }}
+               border-radius: {RADIUS_SM}px; padding: 5px {SPACE_MD}px; }}
 QPushButton:hover {{ background: {BG_HOVER}; }}
 QPushButton:disabled {{ color: {TEXT_DIM}; }}
 QPushButton[accent="true"] {{ background: {ACCENT}; color: white;
                               border: none; font-weight: 600; }}
 QPushButton[accent="true"]:hover {{ background: #659aff; }}
 QPushButton[accent="true"]:disabled {{ background: {ACCENT_DIM}; }}
+QPushButton[flat="true"] {{ background: transparent; border: none;
+                           text-align: left; padding: {SPACE_SM}px {SPACE_MD}px; }}
+QPushButton[flat="true"]:hover {{ background: {BG_HOVER}; }}
+QPushButton[flat="true"][active="true"] {{ background: {ACCENT_DIM};
+                                          color: {TEXT}; font-weight: 600; }}
 
 QProgressBar {{ background: {BG_FIELD}; border: 1px solid {BORDER};
-    border-radius: 4px; text-align: center; color: {TEXT}; height: 16px; }}
-QProgressBar::chunk {{ background: {ACCENT}; border-radius: 3px; }}
+    border-radius: {RADIUS_SM}px; text-align: center; color: {TEXT}; height: 16px; }}
+QProgressBar::chunk {{ background: {ACCENT}; border-radius: {RADIUS_SM - 3}px; }}
 
-QGroupBox {{ border: 1px solid {BORDER}; border-radius: 6px;
-             margin-top: 10px; padding-top: 6px; }}
-QGroupBox::title {{ subcontrol-origin: margin; left: 8px; padding: 0 4px;
+QGroupBox {{ border: 1px solid {BORDER}; border-radius: {RADIUS}px;
+             margin-top: 10px; padding-top: {SPACE_SM}px; }}
+QGroupBox::title {{ subcontrol-origin: margin; left: {SPACE_SM}px; padding: 0 4px;
                     color: {TEXT_DIM}; font-weight: 600; }}
+
+/* Card / section surfaces — GUI Modernization design system */
+QFrame[card="true"] {{ background: {BG_CARD}; border: 1px solid {BORDER};
+                       border-radius: {RADIUS}px; }}
+QFrame[section="true"] {{ background: {BG_PANEL}; border: 1px solid {BORDER};
+                         border-radius: {RADIUS}px; }}
+QLabel[badge="true"] {{ border-radius: {RADIUS_SM}px; padding: 1px 8px;
+                        font-weight: 600; font-size: {FONT_SIZE_SMALL}px; }}
 
 QPlainTextEdit, QTextEdit {{ background: {BG_FIELD};
     border: 1px solid {BORDER};
@@ -126,9 +164,10 @@ QScrollBar::handle:horizontal {{ background: {BORDER}; border-radius: 5px; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
 
 QSplitter::handle {{ background: {BORDER}; }}
-QLabel[hint="true"] {{ color: {TEXT_DIM}; }}
-QLabel[h1="true"] {{ font-size: 17px; font-weight: 700; }}
-QLabel[h2="true"] {{ font-size: 13px; font-weight: 600; color: {TEXT_DIM}; }}
+QLabel[hint="true"] {{ color: {TEXT_DIM}; font-size: {FONT_SIZE_SMALL}px; }}
+QLabel[h1="true"] {{ font-size: {FONT_SIZE_H1}px; font-weight: 700; }}
+QLabel[h2="true"] {{ font-size: {FONT_SIZE_H2}px; font-weight: 600; color: {TEXT_DIM}; }}
+QLabel[stat="true"] {{ font-size: {FONT_SIZE_STAT}px; font-weight: 700; }}
 """
 
 

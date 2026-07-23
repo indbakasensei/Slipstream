@@ -1,25 +1,45 @@
 """Project dashboard — the at-a-glance answer to "how is my study doing?".
 
-Status cards, overall progress, the pipeline strip mirroring the active case,
-a headline L/D-vs-AOA chart, and a recent-events feed. All rendered from the
-same AppState/dataset every other panel uses."""
+GUI Modernization (v1.0.0-rc2): redesigned into clearly separated,
+generously spaced sections (status cards → pipeline → chart → activity/
+overview → study summary), each in its own card, scrolling as a whole
+rather than compressing at smaller window sizes. The public surface
+(``cards``, ``progress``, ``pipeline``, ``pipe_lbl``, ``chart``,
+``recent``, ``study_summary``, ``refresh()``, ``handle_event()``,
+``push_recent()``, ``set_study_summary()``) is unchanged — every existing
+caller and test keeps working exactly as before.
+"""
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
 import pyqtgraph as pg
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QListWidget,
-                               QProgressBar, QPushButton, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QListWidget,
+                               QProgressBar, QPushButton, QScrollArea,
+                               QSizePolicy, QVBoxLayout, QWidget)
 
 from cfdauto.events import Event
 from cfdauto.study_analytics import StudySummary
 from gui import theme
 from gui.panels.charts_panel import series_groups
 from gui.state import AppState
-from gui.widgets import PipelineWidget, StatCard, StudySummaryPanel
+from gui.widgets import (PipelineWidget, SectionHeader, StatCard,
+                         StudyOverviewTable, StudySummaryPanel)
+
+
+def _card(inner: QWidget) -> QFrame:
+    """A section container: card background, standard radius/margin."""
+    frame = QFrame()
+    frame.setProperty("card", True)
+    lay = QVBoxLayout(frame)
+    lay.setContentsMargins(theme.CARD_MARGIN, theme.CARD_MARGIN,
+                           theme.CARD_MARGIN, theme.CARD_MARGIN)
+    lay.setSpacing(theme.SPACE_SM)
+    lay.addWidget(inner)
+    return frame
 
 
 class DashboardPanel(QWidget):
@@ -30,6 +50,7 @@ class DashboardPanel(QWidget):
         super().__init__(parent)
         self.state = state
 
+        # -- header (pinned above the scroll area) -------------------------
         self.title = QLabel("No project loaded")
         self.title.setProperty("h1", True)
         self.subtitle = QLabel("File ▸ Open Project…  to load a config.yaml")
@@ -41,55 +62,101 @@ class DashboardPanel(QWidget):
         self.run_btn.setProperty("accent", True)
         self.run_btn.clicked.connect(self.runAllRequested.emit)
         head = QHBoxLayout()
+        head.setSpacing(theme.SPACE_SM)
         hv = QVBoxLayout(); hv.addWidget(self.title); hv.addWidget(self.subtitle)
         head.addLayout(hv, 1)
         head.addWidget(open_btn)
         head.addWidget(self.run_btn)
 
+        # -- status cards ---------------------------------------------------
         self.cards = {
             "PENDING": StatCard("Pending", theme.STATUS_COLORS["PENDING"]),
             "RUNNING": StatCard("Running", theme.STATUS_COLORS["RUNNING"]),
             "DONE": StatCard("Done", theme.STATUS_COLORS["DONE"]),
             "FAILED": StatCard("Failed", theme.STATUS_COLORS["FAILED"]),
         }
-        cards = QHBoxLayout()
+        cards_row = QHBoxLayout()
+        cards_row.setSpacing(theme.SPACE_MD)
         for c in self.cards.values():
-            cards.addWidget(c)
+            cards_row.addWidget(c)
+        cards_widget = QWidget(); cards_widget.setLayout(cards_row)
 
+        # -- pipeline (full width, non-compact — more breathing room) ------
         self.progress = QProgressBar(); self.progress.setRange(0, 100)
-        self.pipeline = PipelineWidget(compact=True)
+        self.pipeline = PipelineWidget(compact=False)
         self.pipe_lbl = QLabel("Pipeline idle")
         self.pipe_lbl.setProperty("hint", True)
+        pipeline_body = QWidget()
+        pv = QVBoxLayout(pipeline_body)
+        pv.setContentsMargins(0, 0, 0, 0)
+        pv.setSpacing(theme.SPACE_SM)
+        pv.addWidget(self.pipe_lbl)
+        pv.addWidget(self.progress)
+        pv.addWidget(self.pipeline)
+        pipeline_section = QVBoxLayout()
+        pipeline_section.setSpacing(theme.SPACE_SM)
+        pipeline_section.addWidget(SectionHeader("Pipeline", icon="⚙"))
+        pipeline_section.addWidget(pipeline_body)
+        pipeline_widget = QWidget(); pipeline_widget.setLayout(pipeline_section)
 
+        # -- chart (the largest section on the page) ------------------------
         self.chart = pg.PlotWidget(title="L/D vs AOA (by velocity)")
         self.chart.showGrid(x=True, y=True, alpha=0.25)
         self.chart.addLegend(offset=(-10, 10))
         self.chart.setLabel("bottom", "AOA [deg]")
         self.chart.setLabel("left", "L/D")
+        self.chart.setMinimumHeight(360)
+        self.chart.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        chart_section = QVBoxLayout()
+        chart_section.setSpacing(theme.SPACE_SM)
+        chart_section.addWidget(SectionHeader("Results Chart", icon="📈"))
+        chart_section.addWidget(self.chart, 1)
+        chart_widget = QWidget(); chart_widget.setLayout(chart_section)
 
+        # -- recent activity --------------------------------------------------
         self.recent = QListWidget()
-        self.recent.setMaximumHeight(120)
+        self.recent.setAlternatingRowColors(True)
+        self.recent.setMinimumHeight(160)
+        activity_section = QVBoxLayout()
+        activity_section.setSpacing(theme.SPACE_SM)
+        activity_section.addWidget(SectionHeader("Recent Activity", icon="🕘"))
+        activity_section.addWidget(self.recent, 1)
+        activity_widget = QWidget(); activity_widget.setLayout(activity_section)
 
-        # Sprint 4: read-only view of Orchestrator.current_study_summary.
+        # -- study overview (Option A: computed from AppState.df) -----------
+        self.study_overview = StudyOverviewTable(state)
+
+        activity_row = QHBoxLayout()
+        activity_row.setSpacing(theme.SPACE_MD)
+        activity_row.addWidget(_card(activity_widget), 2)
+        activity_row.addWidget(self.study_overview, 3)
+        activity_row_widget = QWidget(); activity_row_widget.setLayout(activity_row)
+
+        # -- study summary (Orchestrator.current_study_summary; unchanged) --
         self.study_summary = StudySummaryPanel()
 
-        grid = QGridLayout(self)
-        grid.setContentsMargins(14, 12, 14, 12)
-        grid.setVerticalSpacing(10)
-        grid.addLayout(head, 0, 0, 1, 2)
-        grid.addLayout(cards, 1, 0, 1, 2)
-        grid.addWidget(self.progress, 2, 0, 1, 2)
-        grid.addWidget(self.pipe_lbl, 3, 0, 1, 2)
-        grid.addWidget(self.pipeline, 4, 0, 1, 2)
-        grid.addWidget(self.chart, 5, 0)
-        rv = QVBoxLayout()
-        lbl = QLabel("Recent events"); lbl.setProperty("h2", True)
-        rv.addWidget(lbl); rv.addWidget(self.recent); rv.addStretch(1)
-        grid.addLayout(rv, 5, 1)
-        grid.addWidget(self.study_summary, 6, 0, 1, 2)
-        grid.setColumnStretch(0, 3)
-        grid.setColumnStretch(1, 2)
-        grid.setRowStretch(5, 1)
+        # -- assemble: header pinned, everything else scrolls --------------
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        body_lay.setSpacing(theme.SPACE_LG)
+        body_lay.addWidget(_card(cards_widget))
+        body_lay.addWidget(_card(pipeline_widget))
+        body_lay.addWidget(_card(chart_widget), 1)
+        body_lay.addWidget(activity_row_widget)
+        body_lay.addWidget(_card(self.study_summary))
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidget(body)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(theme.SPACE_LG, theme.SPACE_MD,
+                                 theme.SPACE_LG, theme.SPACE_MD)
+        outer.setSpacing(theme.SPACE_MD)
+        outer.addLayout(head)
+        outer.addWidget(scroll, 1)
 
         state.datasetChanged.connect(self.refresh)
         state.projectLoaded.connect(self._project_loaded)
@@ -149,11 +216,15 @@ class DashboardPanel(QWidget):
                 f'Batch finished — {d.get("ok", 0)} ok, {d.get("failed", 0)} failed')
 
     def push_recent(self, text: str) -> None:
-        self.recent.insertItem(0, text)
+        """Prepend one activity-feed line. The timestamp is generated here,
+        at display time, purely for presentation — no backend logging is
+        touched or read."""
+        stamped = f"{datetime.now().strftime('%H:%M:%S')}   {text}"
+        self.recent.insertItem(0, stamped)
         while self.recent.count() > 8:
             self.recent.takeItem(self.recent.count() - 1)
 
-    # -- Sprint 4: Study Summary -------------------------------------------
+    # -- Study Summary -------------------------------------------
     def set_study_summary(self, summary: Optional[StudySummary]) -> None:
         """Passthrough to the read-only Study Summary widget — connected to
         EngineWorker.studySummaryReady in main_window.py. Never recomputes

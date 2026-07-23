@@ -30,7 +30,7 @@ from cfdauto.logging_setup import setup_logging
 log = logging.getLogger("gui.state")
 
 OUTPUT_COLS = ["CL", "CD", "L/D", "Lift_N", "Drag_N",
-               "Iterations", "Converged", "Error", "CaseDir"]
+               "Iterations", "Converged", "Error", "CaseDir", "Duration_min"]
 
 
 class AppState(QObject):
@@ -100,6 +100,7 @@ class AppState(QObject):
                 "Converged": out["converged"] or "",
                 "Error": out["error"] or "",
                 "CaseDir": out["case_dir"] or "",
+                "Duration_min": _num(out["duration"]),
             })
             rows.append(rec)
         cols = (["Row", "CaseID", "AOA", "Velocity"] + self.wbp_names
@@ -127,7 +128,8 @@ class AppState(QObject):
                       Iterations=r.get("iterations"),
                       Converged="YES" if r.get("converged") else "NO",
                       Error=r.get("error") or "",
-                      CaseDir=r.get("artifact_dir") or "")
+                      CaseDir=r.get("artifact_dir") or "",
+                      Duration_min=r.get("duration_min"))
         elif evt.type == "case.failed":
             self._set(d["row"], Status="FAILED", Error=d.get("error", ""))
 

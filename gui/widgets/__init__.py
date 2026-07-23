@@ -1,3 +1,7 @@
 from .cards import StatCard              # noqa: F401
 from .pipeline_widget import PipelineWidget  # noqa: F401
 from .study_summary_panel import StudySummaryPanel  # noqa: F401
+from .section_header import SectionHeader  # noqa: F401
+from .collapsible_section import CollapsibleSection  # noqa: F401
+from .sidebar import Sidebar              # noqa: F401
+from .study_overview_table import StudyOverviewTable  # noqa: F401

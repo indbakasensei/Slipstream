@@ -1,37 +1,48 @@
 """Slipstream main window — layout, wiring, and engine-worker ownership.
 
-Layout (VS/Workbench-style)::
+GUI Modernization (v1.0.0-rc2) layout::
 
-    ┌ toolbar ───────────────────────────────────────────────────────────┐
-    │ ⚠ MOCK MODE banner (visible only when mock mode is active) ⚠       │
-    ├──────────┬─────────────────────────────────────────┬───────────────┤
-    │ Explorer │  Central tabs: Dashboard · Results · Charts · Images    │
-    │ (dock L) │                                        │ Queue   (dock) │
-    │          │                                        │ Params  (tab)  │
-    │          │                                        │ Monitor (dock) │
-    ├──────────┴───────────── Log · Statistics (tabbed bottom dock) ─────┤
-    └ status bar ────────────────────────────────────────────────────────┘
+    ┌ menu bar ────────────────────────────────────────────────────────────┐
+    │ toolbar: Open Project · Reload · Run All · Stop · Mock mode          │
+    ├──────────┬─────────────────────────────────────────┬─────────────────┤
+    │          │  ⚠ MOCK MODE banner (only when active) ⚠                 │
+    │ Sidebar  ├─────────────────────────────────────────┬─────────────────┤
+    │ (nav +   │  Center workspace (QStackedWidget:       │ Queue           │
+    │  project │   Dashboard / Results / Charts / Images) │ (persistent —   │
+    │  tree)   │                                          │  not a dock)    │
+    ├──────────┴──────────────────────────────────────────┴─────────────────┤
+    │ Log · Statistics · Console (tabbed bottom dock)                       │
+    └ status bar ────────────────────────────────────────────────────────────┘
 
-Every panel renders from :class:`gui.state.AppState`; this class only routes
-signals and owns the one :class:`gui.event_bridge.EngineWorker` at a time.
+Monitor and Parameters remain QDockWidgets, hidden by default and reachable
+from the View menu — they no longer permanently compete with Queue for
+screen space.
+
+Every panel renders from :class:`gui.state.AppState`; this class only
+routes signals/navigation and owns the one :class:`gui.event_bridge.EngineWorker`
+at a time. ``self.tabs`` is kept as the attribute name for the center
+workspace switcher (now a ``QStackedWidget``, not a ``QTabWidget``) so
+existing code/tests that call ``self.tabs.count()`` / ``.setCurrentWidget()``
+keep working unchanged — both methods exist on either widget type.
 """
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional, Set
+from typing import Dict, Optional, Set
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QDialog, QDockWidget, QFileDialog, QLabel,
-                               QMainWindow, QMessageBox, QTabWidget,
-                               QVBoxLayout, QWidget)
+                               QMainWindow, QMessageBox, QSplitter,
+                               QStackedWidget, QVBoxLayout, QWidget)
 
 import cfdauto
 from cfdauto.error_formatting import format_error
 from cfdauto.events import Event
 from cfdauto.exceptions import CFDAutoError
+from gui import theme
 from gui.event_bridge import EngineWorker
 from gui.panels.charts_panel import ChartsPanel
 from gui.panels.dashboard import DashboardPanel
@@ -44,6 +55,7 @@ from gui.panels.queue_panel import QueuePanel
 from gui.panels.results_table import ResultsTablePanel
 from gui.panels.stats_panel import StatsPanel
 from gui.state import AppState
+from gui.widgets import Sidebar
 
 log = logging.getLogger("gui.main")
 
@@ -72,14 +84,61 @@ class MainWindow(QMainWindow):
         self.stats = StatsPanel(self.state)
         self.explorer = ExplorerPanel(self.state)
 
-        self.tabs = QTabWidget()
-        self.tabs.addTab(self.dashboard, "Dashboard")
-        self.tabs.addTab(self.results, "Results")
-        self.tabs.addTab(self.charts, "Charts")
-        self.tabs.addTab(self.images, "Images")
+        self._docks: Dict[str, QDockWidget] = {}
+        self._make_central()
+        self._make_docks()
+        self._make_menus_toolbar()
+        self._make_statusbar()
+        self._wire()
 
-        # Wrap the tab widget with a mock-mode banner above it. The banner is
-        # hidden by default and appears whenever mock is engaged.
+        if config_path and Path(config_path).exists():
+            self._load(config_path)
+        elif not self.state.cfg:
+            # Friendlier first-run experience than a silent empty dashboard
+            # — invite the user straight into the existing Project Selector
+            # once the window has actually appeared (QTimer.singleShot(0, …)
+            # defers this past .show(), rather than popping a modal dialog
+            # in front of an invisible parent).
+            QTimer.singleShot(0, self._open_project_selector)
+
+    # ------------------------------------------------------------------ #
+    # Central workspace: Sidebar | QStackedWidget | Queue (QSplitter)
+    # ------------------------------------------------------------------ #
+    def _make_central(self) -> None:
+        # Center workspace pages — kept as ``self.tabs`` (a QStackedWidget)
+        # purely for backward compatibility: .count()/.setCurrentWidget()
+        # exist on both QTabWidget and QStackedWidget, so no caller/test
+        # needs to know the widget type changed.
+        self.tabs = QStackedWidget()
+        self._nav_pages = {
+            "dashboard": self.dashboard,
+            "results": self.results,
+            "charts": self.charts,
+            "images": self.images,
+        }
+        for page in self._nav_pages.values():
+            self.tabs.addWidget(page)
+
+        self.sidebar = Sidebar(self.explorer)
+        self.sidebar.pageRequested.connect(self._navigate_to_page)
+
+        self.splitter = QSplitter(Qt.Horizontal)
+        self.splitter.addWidget(self.sidebar)
+        self.splitter.addWidget(self.tabs)
+        self.splitter.addWidget(self.queue)
+        # Sidebar and Queue hold their width; the center workspace absorbs
+        # whatever space resizing adds or removes (stretch factors, not
+        # fixed geometry — scales cleanly at 1080p/1440p/4K).
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setStretchFactor(2, 0)
+        # Initial proportions only (~230px sidebar, ~30% queue) — the user
+        # can resize freely afterward; nothing here is a hard constraint.
+        total = max(self.width(), 1480)
+        queue_w = int(total * 0.30)
+        self.splitter.setSizes([230, max(200, total - 230 - queue_w), queue_w])
+
+        # Mock-mode banner sits above the splitter, spanning full width.
         self.mock_banner = QLabel(
             "⚠  MOCK MODE — no ANSYS software will run · results are "
             "fabricated for pipeline testing only  ⚠")
@@ -95,52 +154,49 @@ class MainWindow(QMainWindow):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
         v.addWidget(self.mock_banner)
-        v.addWidget(self.tabs)
+        v.addWidget(self.splitter, 1)
         self.setCentralWidget(central)
 
-        self._docks = {}
-        self._make_docks()
-        self._make_menus_toolbar()
-        self._make_statusbar()
-        self._wire()
-
-        if config_path and Path(config_path).exists():
-            self._load(config_path)
-        elif not self.state.cfg:
-            # Sprint 6: friendlier first-run experience than a silent empty
-            # dashboard — invite the user straight into the existing
-            # Project Selector once the window has actually appeared
-            # (QTimer.singleShot(0, ...) defers this past .show(), rather
-            # than popping a modal dialog in front of an invisible parent).
-            QTimer.singleShot(0, self._open_project_selector)
+    def _navigate_to_page(self, page_id: str) -> None:
+        page = self._nav_pages.get(page_id)
+        if page is not None:
+            self.tabs.setCurrentWidget(page)
 
     # ------------------------------------------------------------------ #
-    # Docks / menus / status bar
+    # Docks: Monitor + Parameters (hidden by default) and the bottom
+    # Log/Statistics/Console tab group (visible by default, as before).
     # ------------------------------------------------------------------ #
-    def _dock(self, title: str, widget, area, tab_with: str | None = None):
+    def _dock(self, title: str, widget, area, tab_with: str | None = None,
+             start_hidden: bool = False):
         d = QDockWidget(title, self)
         d.setObjectName(title)
         d.setWidget(widget)
         self.addDockWidget(area, d)
         if tab_with:
             self.tabifyDockWidget(self._docks[tab_with], d)
+        if start_hidden:
+            d.setVisible(False)
         self._docks[title] = d
         return d
 
     def _make_docks(self) -> None:
-        self._dock("Explorer", self.explorer, Qt.LeftDockWidgetArea)
-        q = self._dock("Queue", self.queue, Qt.RightDockWidgetArea)
+        self._dock("Monitor", self.monitor, Qt.RightDockWidgetArea,
+                  start_hidden=True)
         self._dock("Parameters", self.params, Qt.RightDockWidgetArea,
-                   tab_with="Queue")
-        q.raise_()
-        self._dock("Monitor", self.monitor, Qt.RightDockWidgetArea)
-        self.splitDockWidget(q, self._docks["Monitor"], Qt.Vertical)
+                  tab_with="Monitor", start_hidden=True)
+
         lg = self._dock("Log", self.log_panel, Qt.BottomDockWidgetArea)
         self._dock("Statistics", self.stats, Qt.BottomDockWidgetArea,
-                   tab_with="Log")
+                  tab_with="Log")
+        console_placeholder = QLabel(
+            "Console — coming soon.\n\n"
+            "A future release may add an embedded command console here.")
+        console_placeholder.setAlignment(Qt.AlignCenter)
+        console_placeholder.setProperty("hint", True)
+        self._dock("Console", console_placeholder, Qt.BottomDockWidgetArea,
+                  tab_with="Log")
         lg.raise_()
-        self.resizeDocks([self._docks["Explorer"]], [250], Qt.Horizontal)
-        self.resizeDocks([q, self._docks["Monitor"]], [430, 430], Qt.Horizontal)
+
         self.resizeDocks([lg], [190], Qt.Vertical)
         self._default_layout = self.saveState()
 
@@ -183,6 +239,8 @@ class MainWindow(QMainWindow):
         m_help.addAction(QAction("About Slipstream", self,
                                  triggered=self._about))
 
+        # Toolbar: only the five primary actions — everything else lives
+        # in menus (no duplicated Run buttons, no toolbar clutter).
         tb = self.addToolBar("Main")
         tb.setObjectName("MainToolbar")
         tb.setMovable(False)
@@ -289,10 +347,10 @@ class MainWindow(QMainWindow):
             self._load(str(self.state.config_path))
 
     def _open_project_selector(self) -> None:
-        """Sprint 5: Open Recent / Open Existing / Create New. Purely a
-        front door to the existing config.yaml flow — a selected/created
-        project hands off to the unchanged self._load(); nothing about how
-        a study runs is touched here."""
+        """Open Recent / Open Existing / Create New. Purely a front door to
+        the existing config.yaml flow — a selected/created project hands
+        off to the unchanged self._load(); nothing about how a study runs
+        is touched here."""
         from gui.project_selector_dialog import ProjectSelectorDialog
         dlg = ProjectSelectorDialog(self)
         if dlg.exec() == QDialog.Accepted and dlg.selected_project_root:
