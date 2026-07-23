@@ -25,6 +25,7 @@ from PySide6.QtCore import QObject, Signal
 from cfdauto.config import Config, load_config
 from cfdauto.events import Event
 from cfdauto.excel_manager import ExcelManager
+from cfdauto.experiment_definition import ExperimentDefinition
 from cfdauto.logging_setup import setup_logging
 from cfdauto.simulation_context import SimulationContext
 
@@ -57,6 +58,9 @@ class AppState(QObject):
         # panels read parameter/metric labels, units, and bounds from this
         # instead of duplicating literals.
         self.context = SimulationContext.default()
+        # Phase 3B: runtime materialization of the study's input schema
+        # (spreadsheet columns, editable/validation metadata, default rows).
+        self.experiment_definition = ExperimentDefinition.from_context(self.context)
 
     # ------------------------------------------------------------------ #
     # Project lifecycle
@@ -68,6 +72,7 @@ class AppState(QObject):
         # Refresh the runtime context with this project's identity (still
         # the External Aerodynamics template — Phase 2 is single-template).
         self.context = SimulationContext.default(project=self.config_path.stem)
+        self.experiment_definition = ExperimentDefinition.from_context(self.context)
         # Same logging contract as the CLI: root at DEBUG, rotating file in
         # <work_dir>/logs. The Qt console handler attaches per-run on top.
         setup_logging(self.cfg.work_dir() / "logs")

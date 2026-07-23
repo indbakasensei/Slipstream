@@ -56,6 +56,9 @@ class StudyParameter:
     visible: bool = True
     editable: bool = True
     group: str = ""
+    example_values: Tuple[float, ...] = ()   # default sweep values for a new
+                                             # study's example rows (empty =>
+                                             # fall back to the single default)
 
     # -- delegate identity/display metadata to the ParameterDefinition -- #
     @property

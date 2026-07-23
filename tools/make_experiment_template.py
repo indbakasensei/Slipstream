@@ -20,8 +20,10 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-# Keep in sync with cfdauto.config.ColumnMap defaults.
-INPUT_HEADERS = ["AOA_deg", "Velocity_m_s"]
+# Phase 3B: the *input* columns and the example sweep no longer live here —
+# they come from the active template's study definition, materialized by
+# ExperimentDefinition. The output (result) headers and all cosmetic
+# details below remain the workbook's presentation, unchanged.
 OUTPUT_HEADERS = ["Status", "CL", "CD", "CL/CD", "Lift_N", "Drag_N", "FL/FD",
                   "Iterations", "Converged", "Error", "Started", "Finished",
                   "Duration_min", "CaseDir"]
@@ -30,22 +32,22 @@ WIDTHS = {"AOA_deg": 10, "Velocity_m_s": 13, "Status": 10, "CL": 10, "CD": 10,
           "Converged": 11, "Error": 40, "Started": 19, "Finished": 19,
           "Duration_min": 13, "CaseDir": 34}
 
-# A small, sensible starting matrix the user can edit/extend freely.
-EXAMPLE_AOA = [0, 4, 8, 12]
-EXAMPLE_VEL = [20, 30]
-
 FONT = "Calibri"
 HEADER_FILL = PatternFill("solid", fgColor="1F4E79")   # dark steel blue
 INPUT_FILL = PatternFill("solid", fgColor="DDEBF7")    # light blue: "yours"
 
 
 def build_template(path: Path) -> Path:
+    from cfdauto.experiment_definition import ExperimentDefinition
+    exp_def = ExperimentDefinition.default()
+    input_headers = exp_def.column_names()          # e.g. ["AOA_deg", "Velocity_m_s"]
+
     wb = Workbook()
 
     # ------------------------------------------------------------- sheet 1
     ws = wb.active
     ws.title = "Experiments"
-    headers = INPUT_HEADERS + OUTPUT_HEADERS
+    headers = input_headers + OUTPUT_HEADERS
     for col, name in enumerate(headers, start=1):
         c = ws.cell(row=1, column=col, value=name)
         c.font = Font(name=FONT, bold=True, color="FFFFFF", size=11)
@@ -53,16 +55,15 @@ def build_template(path: Path) -> Path:
         c.alignment = Alignment(horizontal="center", vertical="center")
         ws.column_dimensions[get_column_letter(col)].width = WIDTHS.get(name, 12)
 
-    row = 2
-    for aoa in EXAMPLE_AOA:
-        for vel in EXAMPLE_VEL:
-            a = ws.cell(row=row, column=1, value=float(aoa))
-            v = ws.cell(row=row, column=2, value=float(vel))
-            for c in (a, v):
-                c.font = Font(name=FONT, size=11)
-                c.fill = INPUT_FILL
-                c.number_format = "0.0"
-            row += 1
+    # Example rows come from the template's default sweep (input order →
+    # column order). Byte-identical to the former hardcoded AOA×Velocity grid.
+    n_inputs = len(input_headers)
+    for r, values in enumerate(exp_def.default_experiment_rows(), start=2):
+        for col in range(1, n_inputs + 1):
+            cell = ws.cell(row=r, column=col, value=float(values[col - 1]))
+            cell.font = Font(name=FONT, size=11)
+            cell.fill = INPUT_FILL
+            cell.number_format = "0.0"
 
     ws.freeze_panes = "A2"          # keep the header visible while scrolling
 

@@ -94,10 +94,10 @@ class ChartsPanel(QWidget):
 
     # ------------------------------------------------------------------ #
     def _rebuild_axes(self) -> None:
-        # Phase 3A: the input-axis order comes from the active template's
-        # study definition, not a hardcoded ["AOA", "Velocity"]. Identical
-        # result today; correct automatically for any future template.
-        xs = self.state.context.input_columns() + self.state.wbp_names
+        # Phase 3B: the input-axis order comes from the runtime
+        # ExperimentDefinition, not a hardcoded ["AOA", "Velocity"].
+        # Identical result today; correct automatically for any future template.
+        xs = self.state.experiment_definition.input_columns() + self.state.wbp_names
         for box, items in ((self.x_box, xs),
                            (self.c_box, ["(none)"] + xs)):
             box.blockSignals(True)

@@ -140,8 +140,13 @@ _EXT_AERO_METRICS: Tuple[MetricDefinition, ...] = (
 # "AOA first, Velocity second". Column names mirror config.ColumnMap
 # defaults.
 _EXT_AERO_STUDY = StudyDefinition(parameters=(
-    StudyParameter(parameter=_AOA, column_name="AOA_deg", order=0),
-    StudyParameter(parameter=_VELOCITY, column_name="Velocity_m_s", order=1),
+    # example_values are the default sweep a fresh schedule is seeded with —
+    # previously the EXAMPLE_AOA / EXAMPLE_VEL literals in
+    # tools/make_experiment_template.py, now owned by the template.
+    StudyParameter(parameter=_AOA, column_name="AOA_deg", order=0,
+                   example_values=(0.0, 4.0, 8.0, 12.0)),
+    StudyParameter(parameter=_VELOCITY, column_name="Velocity_m_s", order=1,
+                   example_values=(20.0, 30.0)),
 ))
 
 EXTERNAL_AERODYNAMICS = SimulationTemplate(

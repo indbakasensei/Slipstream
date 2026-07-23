@@ -1,12 +1,14 @@
 # Slipstream — Universal CFD Platform Architecture
 
-**Status: v2.0.0-dev, Phase 3A (template-driven study definition).** This
+**Status: v2.0.0-dev, Phase 3B (template-driven experiment engine).** This
 document describes an architectural direction, the metadata layer that
-seeds it (Phase 1), the runtime's migration onto it (Phase 2), and the
-introduction of template-driven study definitions and input ordering
-(Phase 3A, §7). Through Phase 3A **behavior remains byte-for-byte identical
-to v1.0** — every existing project, workflow, Excel file, and test is
-unchanged.
+seeds it (Phase 1), the runtime's migration onto it (Phase 2), template-
+driven study definitions and input ordering (Phase 3A, §7), and template-
+driven experiment generation, validation, and defaults (Phase 3B, §8).
+Through Phase 3B **behavior remains byte-for-byte identical to v1.0** —
+every existing project, workflow, Excel file, and test is unchanged; the
+generated schedule workbook is structurally identical to before (verified
+by regenerate-and-diff).
 
 ---
 
@@ -151,11 +153,16 @@ Each phase is independently shippable and preserves behavior:
   specification and spreadsheet-column metadata, and the runtime asks the
   template for input ordering instead of hardcoding "AOA first, Velocity
   second." Byte-identical behavior; no Excel generated yet. ✅
-- **Phase 3B — Column mapping via the template.** Let `ExcelManager`'s
-  column vocabulary and the linter's rules be *derived from* the active
-  template's `StudyDefinition`/metrics instead of `config.ColumnMap`, with
-  External Aerodynamics reproducing today's exact columns, and wire an
-  Excel generator to `StudyDefinition.spreadsheet_columns()`.
+- **Phase 3B (this sprint) — Template-driven experiment engine.**
+  Introduce the runtime `ExperimentDefinition` (§8) that materializes a
+  `StudyDefinition` into concrete rows/validation, and drive workbook
+  generation, the default sweep, queue columns, and the validation surface
+  from it. Byte-identical output (verified by regenerate-and-diff). ✅
+- **Phase 3C — Column vocabulary unification.** Let `ExcelManager`'s
+  *reading* of a schedule (`config.ColumnMap`) be reconciled with the
+  template's `StudyDefinition` column names, so a project's column
+  vocabulary has one authoritative origin. (Deferred here because existing
+  workbooks with custom `ColumnMap` overrides must keep reading unchanged.)
 - **Phase 4 — Second template.** Add a genuinely different template
   (e.g. internal flow: mass-flow-rate in, pressure-drop out) end-to-end,
   proving the engine is domain-agnostic. This is the first phase with a
@@ -166,19 +173,19 @@ Each phase is independently shippable and preserves behavior:
 
 Guardrail for every phase: *the External Aerodynamics path must produce
 byte-identical Excel rows and identical analytics to today.* The regression
-suite (188 tests as of Phase 3A) is the contract that guarantees it.
+suite (198 tests as of Phase 3B) is the contract that guarantees it.
 
 ---
 
-## 5. What Phases 1–3A deliberately do **not** do
+## 5. What Phases 1–3B deliberately do **not** do
 
 No Alpha/Beta/Mach/RPM support wired in; no DOE; no heat transfer, cars,
 pipes, combustion, or multiphase templates; no plugins; no new GUI pages,
 template-selection dialog, or dynamic parameter editor; no second template;
-no solver, analytics, Excel-schema, or result-extraction changes; no Excel
-*generated* from the new study metadata. Phases 2–3A migrated *duplicated
-display and ordering metadata only* — they did not change any runtime
-logic.
+no solver, analytics, result-extraction, or Excel-*schema* changes. Phase
+3B changed *where the input-column and default-sweep metadata originate*
+(now the template) — it did not change the workbook's structure, the
+schedule-reading path, or any runtime logic.
 
 ---
 
@@ -308,3 +315,74 @@ template automatically.
 - **No Excel is generated** from `spreadsheet_columns()` — that helper is
   the seam a Phase 3B generator will consume; `make_experiment_template.py`
   is untouched.
+
+---
+
+## 8. Phase 3B — template-driven experiment engine
+
+### 8.1 `ExperimentDefinition` (runtime materialization)
+
+`cfdauto/experiment_definition.py` adds `ExperimentDefinition` — the
+*runtime* object that consumes a platform-level `StudyDefinition`. The
+distinction is deliberate and enforced:
+
+- **`StudyDefinition`** (platform, `cfdauto/platform/`) — pure metadata:
+  "this study has these parameters, in this order, with these columns and
+  example sweep values."
+- **`ExperimentDefinition`** (runtime, `cfdauto/`) — *materializes* that
+  metadata: concrete default rows, the spreadsheet/editable/validation
+  views the runtime consumes, and value validation.
+
+`ExperimentDefinition` **references** a `StudyDefinition` (`self.study`);
+it never copies its fields (verified by a test asserting
+`ed.study is ctx.study_definition`). Dependency direction stays one-way:
+runtime → platform.
+
+`gui.state.AppState` holds one (`self.experiment_definition`), built in
+`__init__` and refreshed on `load_project`, alongside the
+`SimulationContext`.
+
+### 8.2 What now originates from the template
+
+| Concern | Was hardcoded in | Now driven by |
+|---|---|---|
+| Schedule **input columns** | `make_experiment_template.INPUT_HEADERS` | `ExperimentDefinition.column_names()` (← StudyDefinition) |
+| **Default example rows** | `EXAMPLE_AOA`/`EXAMPLE_VEL` literals | `ExperimentDefinition.default_experiment_rows()` (cartesian product of each input's `example_values`) |
+| **Queue** input columns | `["Row", "AOA", "Velocity"] …` | `["Row"] + experiment_definition.input_columns() + …` |
+| **Charts** input axes | `["AOA", "Velocity"] + wbp` | `experiment_definition.input_columns() + wbp` |
+| **Validation** surface | (only `ParamsPanel` spin bounds, Phase 2) | `ExperimentDefinition.validate_value()/validate_row()` (← `ParameterDefinition`) |
+
+The example sweep values (`AOA (0,4,8,12)`, `Velocity (20,30)`) moved from
+the generator's module constants onto the template's `StudyParameter`s
+(`example_values`). The generator now iterates
+`default_experiment_rows()`; the output header names, column widths,
+fonts, fills, number formats, freeze panes, and the ReadMe sheet are
+unchanged.
+
+### 8.3 Byte-compatibility (verified, not assumed)
+
+The generated `experiments.xlsx` was dumped to a structural snapshot
+(headers, every cell value, number format, font, fill, alignment, column
+widths, freeze panes, both sheets) **before** the migration, then again
+**after**, and the two snapshots are identical. The existing regression
+tests (schedule reads back as 8 experiments, `append_experiment` lands on
+row 10, mock pipeline runs) independently confirm the workbook is
+unchanged in practice.
+
+### 8.4 What Phase 3B deliberately leaves for later
+
+- **`config.ColumnMap` remains authoritative for *reading* a schedule.**
+  A user may rename columns in `config.yaml`; the template's
+  `column_name`s are the *generation* default and describe the built-in
+  study, but the schedule *reader* still uses `ColumnMap`. Reconciling the
+  two origins is Phase 3C — doing it now would risk existing workbooks
+  with custom column names.
+- **`Experiment.validate()` is not re-sourced from the template.** Its
+  velocity check (`> 0`) differs from `ParameterDefinition.minimum`
+  (`0.01`, a UI editing cap); `ExperimentDefinition.validate_value()`
+  provides the template-driven validation surface, but wiring it into the
+  run path would change that boundary and is out of scope
+  ("do not change validation behaviour").
+- **The `Experiment` model and dataset schema stay aoa/velocity-shaped.**
+  Generalizing them to arbitrary parameters is a later phase; Phase 3B
+  moved the *column and default-sweep metadata*, not the model's shape.

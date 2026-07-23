@@ -88,9 +88,10 @@ class QueuePanel(QWidget):
 
     # ------------------------------------------------------------------ #
     def columns(self):
-        # Phase 3A: input-column order (AOA, Velocity) comes from the active
-        # template's study definition rather than being hardcoded here.
-        return (["Row"] + self.state.context.input_columns()
+        # Phase 3B: the input columns come from the runtime ExperimentDefinition
+        # (materialized from the active template's study definition) rather
+        # than being hardcoded here. Identical result today.
+        return (["Row"] + self.state.experiment_definition.input_columns()
                 + self.state.wbp_names
                 + ["Status", "CL", "CD", "L/D", "It", "Conv"])
 
