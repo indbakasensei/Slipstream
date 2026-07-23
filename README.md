@@ -513,6 +513,7 @@ slipstream/
 │   │   ├── metrics.py       #   MetricDefinition (generic outputs)
 │   │   ├── study_definition.py #   StudyDefinition (ordered inputs + columns)
 │   │   ├── templates.py     #   SimulationTemplate + External Aerodynamics
+│   │   ├── internal_flow.py #   Internal Flow template (multi-template proof)
 │   │   └── registry.py      #   TemplateRegistry (see docs/PLATFORM_ARCHITECTURE.md)
 │   └── logging_setup.py     # per-case log files
 │

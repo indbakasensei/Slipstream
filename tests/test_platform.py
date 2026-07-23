@@ -133,11 +133,15 @@ def test_template_lookup_by_name_or_id():
 # --------------------------------------------------------------------- #
 # Group: TemplateRegistry
 # --------------------------------------------------------------------- #
-def test_default_registry_contains_only_external_aerodynamics():
+def test_default_registry_contains_the_builtin_templates():
+    # Phase 6: a second built-in template (Internal Flow) now coexists with
+    # External Aerodynamics. External Aerodynamics remains the *default*
+    # (see test_get_default_template_returns_external_aerodynamics), so
+    # nothing about existing runtime behavior changes.
     reg = get_default_registry()
-    assert reg.ids() == ["external-aerodynamics"]
-    assert "external-aerodynamics" in reg
-    assert len(reg) == 1
+    assert reg.ids() == ["external-aerodynamics", "internal-flow"]
+    assert "external-aerodynamics" in reg and "internal-flow" in reg
+    assert len(reg) == 2
 
 
 def test_get_default_template_returns_external_aerodynamics():

@@ -1,16 +1,17 @@
 # Slipstream — Universal CFD Platform Architecture
 
-**Status: v2.0.0-dev, Phase 5 (generic study I/O layer — platform
-complete).** This document describes an architectural direction, the
-metadata layer that seeds it (Phase 1), the runtime's migration onto it
-(Phase 2), template-driven study definitions and input ordering (Phase 3A,
-§7), template-driven experiment generation/validation/defaults (Phase 3B,
-§8), the generic `Experiment`/`CaseResult` model (Phase 4, §9), and the
-template-driven study I/O boundary — workbook import/export and dataset
-construction (Phase 5, §10). Through Phase 5 **behavior remains
-byte-for-byte identical to v1.0** — every existing project, workflow, Excel
-file, result-JSON, and test is unchanged (workbook, result-JSON, schedule
-read-back, and GUI dataset byte-compatibility all verified empirically).
+**Status: v2.0.0-dev, Phase 6 (multi-template proof — platform validated).**
+This document describes an architectural direction, the metadata layer that
+seeds it (Phase 1), the runtime's migration onto it (Phase 2), template-
+driven study definitions and input ordering (Phase 3A, §7), template-driven
+experiment generation/validation/defaults (Phase 3B, §8), the generic
+`Experiment`/`CaseResult` model (Phase 4, §9), the template-driven study I/O
+boundary (Phase 5, §10), and a **second, domain-different reference template
+— Internal Flow — added with zero core-runtime changes (Phase 6, §11)**.
+Phase 6 is the architecture's proof: two independent CFD templates coexist,
+External Aerodynamics remains the default (v1.0 behavior byte-for-byte
+unchanged), and adding the new domain touched no runtime code — only a data
+file and one registry registration.
 
 ---
 
@@ -177,32 +178,34 @@ Each phase is independently shippable and preserves behavior:
   not hardcoded `AOA`/`Velocity`. Byte-identical. This **completes the core
   platform architecture**: no airfoil assumption remains between the
   spreadsheet and the runtime. ✅
-- **Phase 6 (future) — Second template.** Add a genuinely different template
-  (e.g. internal flow: mass-flow-rate in, pressure-drop out) end-to-end,
-  proving the engine is domain-agnostic. The first phase with a
-  user-visible feature.
+- **Phase 6 (this sprint) — Multi-template proof (Internal Flow).** Add a
+  second, domain-different reference template (§11) — internal pipe flow —
+  purely as data, driven through the existing runtime. **No core-runtime
+  changes.** Validates the whole architecture. ✅
 - **Phase 7 (future) — Template selection + dynamic editor + legacy
-  removal.** "New study from template," a parameter editor generated from
-  `StudyDefinition`, per-project template resolution replacing
-  `get_default_template()`, and (once no caller needs them) removal of the
-  legacy `aoa_deg`/`velocity`/`cl`/`cd` accessors.
+  removal.** Per-project template resolution (replacing the single default),
+  "New study from template," a parameter editor generated from
+  `StudyDefinition`, a solver setup for Internal Flow, generalizing the
+  remaining airfoil conveniences (`case_id`/`geometry_key`/`ColumnMap`
+  output columns), and (once no caller needs them) removal of the legacy
+  `aoa_deg`/`velocity`/`cl`/`cd` accessors.
 
 Guardrail for every phase: *the External Aerodynamics path must produce
 byte-identical Excel rows, result-JSON, and analytics to today.* The
-regression suite (224 tests as of Phase 5) is the contract that guarantees it.
+regression suite (234 tests as of Phase 6) is the contract that guarantees it.
 
 ---
 
-## 5. What Phases 1–5 deliberately do **not** do
+## 5. What Phases 1–6 deliberately do **not** do
 
 No Alpha/Beta/Mach/RPM support wired in; no DOE; no heat transfer, cars,
-pipes, combustion, or multiphase templates; no plugins; no new GUI pages,
-template-selection dialog, or dynamic parameter editor; no second template;
-no solver, analytics, result-extraction, or Excel-*schema* changes; no
-removal of the legacy `aoa_deg`/`velocity`/`cl`/`cd` accessors. Phase 5
-changed *where the spreadsheet↔runtime mapping originates* (now the
-template, via `StudyIO`) — it did not change the workbook format, the
-dataset schema, validation behavior, or any value.
+combustion, or multiphase templates; no plugins; no new GUI pages,
+template-selection dialog, or dynamic parameter editor; no solver
+implementation or Fluent automation for Internal Flow; no per-project
+template selection (External Aerodynamics is still the single default); no
+analytics/result-extraction/Excel-*schema* changes; no removal of the
+legacy `aoa_deg`/`velocity`/`cl`/`cd` accessors. Phase 6 *added a second
+template as data* to validate the architecture — it changed no runtime code.
 
 ---
 
@@ -582,3 +585,107 @@ Negligible. `read_experiments` does the same number of cell reads; the
 per-row work now goes through two small method calls (`interpret_row` →
 `build_experiment`) instead of an inline `Experiment(...)`. No measurable
 change in the 224-test suite runtime.
+
+---
+
+## 11. Phase 6 — multi-template proof (Internal Flow)
+
+### 11.1 What was added
+
+A second reference template, **Internal Flow** (`cfdauto/platform/internal_flow.py`),
+for parametric internal pipe flow:
+
+| | |
+|---|---|
+| Parameters | `inlet_velocity` (m/s), `fluid_density` (kg/m³), `fluid_viscosity` (Pa·s), `pipe_diameter` (m, Workbench `P1`), `pipe_length` (m, Workbench `P2`) |
+| Metrics | `pressure_drop` (Pa, solver), `reynolds_number` (–, derived), `friction_factor` (–, derived) |
+| Study | sweep inlet velocity × pipe diameter; fluid properties + length fixed at defaults → **8 example rows** |
+| Defaults | water at ~20 °C (ρ = 998.2, μ = 1.002e-3) |
+| Solver / BC | `ansys-fluent`, velocity inlet + pressure outlet |
+| Validation | `moody-chart` |
+
+It shares **nothing** with External Aerodynamics — disjoint parameters and
+metrics (asserted by a test) — and is defined with the exact same platform
+models (`ParameterDefinition`, `MetricDefinition`, `StudyParameter`,
+`StudyDefinition`, `SimulationTemplate`).
+
+### 11.2 Core-runtime changes required: **none**
+
+The entire sprint's diff, outside the new template file and its tests:
+
+| File | Change | Kind |
+|---|---|---|
+| `cfdauto/platform/registry.py` | one `register(INTERNAL_FLOW)` call | the registry's designed extension point |
+| `cfdauto/platform/__init__.py` | export `INTERNAL_FLOW` | trivial re-export |
+| `tools/make_experiment_template.py` | `build_template(path, exp_def=None)` | additive generator generalization (default unchanged) |
+| `tests/test_platform.py` | one test now asserts *two* templates | required — the registry count changed by design |
+
+Verified byte-unchanged (`git diff --quiet`): `models.py`, `study_io.py`,
+`simulation_context.py`, `experiment_definition.py`, `excel_manager.py`,
+`orchestrator.py`, `gui/state.py`, and every `platform/` model. The generic
+runtime handled a brand-new CFD domain **untouched**.
+
+### 11.3 Evidence of template isolation
+
+- The default is unchanged: `get_default_template()`,
+  `SimulationContext.default()`, and `ExperimentDefinition.default()` all
+  still resolve to External Aerodynamics, so every existing runtime path and
+  all 224 prior tests behave identically.
+- Internal Flow is *inert* until requested by id
+  (`registry.get("internal-flow")`); registering it changed no default and
+  no behavior.
+- The two templates generate independently side by side (one produces an
+  `AOA_deg`/`Velocity_m_s` workbook, the other an
+  `InletVelocity_m_s`/…/`PipeLength_m` workbook) with no interference.
+
+### 11.4 How the existing runtime absorbed it (no branching)
+
+- `SimulationContext(template=INTERNAL_FLOW)` — the frozen dataclass already
+  accepts any template.
+- `ExperimentDefinition.from_context(ctx)` — `column_names()`,
+  `default_experiment_rows()` (cartesian product of `example_values`), and
+  `build_experiment()` are template-agnostic; the 5-parameter study
+  materializes with no special case.
+- `StudyIO(exp_def, ColumnMap())` — `input_column_header()` resolves
+  `getattr(ColumnMap, name)` and, for the Internal Flow parameters (which
+  are *not* `ColumnMap` fields), **falls back to the template's
+  `column_name`** — exactly the extension seam built in Phase 5. Import,
+  row interpretation, and validation all work unchanged.
+- `Experiment` stores the 5 generic `ParameterValue`s keyed by name;
+  `exp.parameter("inlet_velocity")` reads them. The airfoil-named legacy
+  accessors are simply never called on an Internal Flow experiment.
+
+### 11.5 Platform weaknesses discovered (and their honest status)
+
+Phase 6 confirmed the deferred couplings noted in §9.5 / §10.5 — none block
+the multi-template proof, all are on the *run/results* path, out of scope
+here:
+
+- **`Experiment.case_id` / `geometry_key` / `validate()`** still name
+  `aoa`/`velocity`; calling them on an Internal Flow experiment would fail.
+  Not needed for generation/import/validation; needed only to *run* a
+  study (Phase 7, with the Internal Flow solver setup). Generalizing them
+  (template-driven `case_id`, per-parameter `validate`) is the clear next
+  step.
+- **Result/output columns** in the generated workbook remain the External
+  Aerodynamics set (tied to `config.ColumnMap`, which enumerates fixed
+  fields). Internal Flow's inputs are fully template-driven; its *output*
+  columns are not — moot in Phase 6 (no solver writes them), and a
+  `ColumnMap`-generalization task for later.
+- **`ExcelManager` / `StudyIO.default()` resolve only the default
+  template.** Reading an Internal Flow workbook through the full
+  `ExcelManager` needs per-project template resolution (Phase 7); Phase 6
+  drives StudyIO with the Internal Flow `ExperimentDefinition` directly,
+  which is the same code path.
+
+### 11.6 Lessons learned
+
+- The Phase 5 `getattr(ColumnMap, name)` → `column_name` fallback was the
+  single most important design decision: it is what let a template with
+  entirely non-`ColumnMap` parameters flow through `StudyIO` with no change.
+- Keeping the airfoil-named accessors as *thin* wrappers (Phase 4) meant a
+  non-airfoil experiment is completely valid as long as those specific
+  accessors aren't called — the generic store carries everything.
+- The remaining airfoil coupling is now sharply localized to three
+  run-path conveniences (`case_id`, `geometry_key`, `ColumnMap` outputs),
+  a precise and small Phase 7 target rather than a diffuse assumption.

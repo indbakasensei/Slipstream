@@ -37,9 +37,21 @@ HEADER_FILL = PatternFill("solid", fgColor="1F4E79")   # dark steel blue
 INPUT_FILL = PatternFill("solid", fgColor="DDEBF7")    # light blue: "yours"
 
 
-def build_template(path: Path) -> Path:
+def build_template(path: Path, exp_def=None) -> Path:
+    """Generate a schedule workbook for a study.
+
+    ``exp_def`` is the :class:`~cfdauto.experiment_definition.ExperimentDefinition`
+    whose study drives the *input* columns and default rows; it defaults to
+    the application's default study (External Aerodynamics), so every
+    existing call is unchanged. Passing a different template's
+    ExperimentDefinition (e.g. Internal Flow) generates that study's input
+    schedule instead — the generator is template-agnostic. (The result/
+    output columns remain the standard set — templating those is tied to
+    ``config.ColumnMap`` and is a later generalization.)
+    """
     from cfdauto.experiment_definition import ExperimentDefinition
-    exp_def = ExperimentDefinition.default()
+    if exp_def is None:
+        exp_def = ExperimentDefinition.default()
     input_headers = exp_def.column_names()          # e.g. ["AOA_deg", "Velocity_m_s"]
 
     wb = Workbook()

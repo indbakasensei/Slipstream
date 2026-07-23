@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
+from .internal_flow import INTERNAL_FLOW
 from .templates import EXTERNAL_AERODYNAMICS, SimulationTemplate
 
 DEFAULT_TEMPLATE_ID = EXTERNAL_AERODYNAMICS.id
@@ -69,6 +70,12 @@ class TemplateRegistry:
 # --------------------------------------------------------------------------- #
 _default_registry = TemplateRegistry()
 _default_registry.register(EXTERNAL_AERODYNAMICS)
+# Phase 6: a second, domain-different template — registered exactly the same
+# way, changing nothing about the registry or the default. External
+# Aerodynamics remains the default (see DEFAULT_TEMPLATE_ID), so every
+# existing runtime path is unaffected; Internal Flow is inert until asked
+# for by id.
+_default_registry.register(INTERNAL_FLOW)
 
 
 def get_default_registry() -> TemplateRegistry:
