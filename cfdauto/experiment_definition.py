@@ -105,12 +105,18 @@ class ExperimentDefinition:
         return out
 
     def build_experiment(self, row: int, values: Dict[str, float],
-                         status: str = "") -> Experiment:
+                         status: str = "",
+                         extra_wb_params: Optional[Dict[str, float]] = None
+                         ) -> Experiment:
         """Materialize a generic :class:`Experiment` for ``row`` from a
-        name→value mapping, using this study's parameter containers. The
-        runtime never names AOA/velocity to do this — it asks the template."""
-        return Experiment(row=row, status=status,
-                          parameters=self.build_parameter_values(values))
+        name→value mapping, using this study's parameter containers, plus
+        any extra ``WBP:`` workbench parameters (kept as ``source="wbp"``).
+        The runtime never names AOA/velocity to do this — it asks the
+        template."""
+        params = self.build_parameter_values(values)
+        for name, value in (extra_wb_params or {}).items():
+            params[name] = ParameterValue(name, float(value), source="wbp")
+        return Experiment(row=row, status=status, parameters=params)
 
     # -- validation (template-driven; delegates to ParameterDefinition) - #
     def parameter_for_column(self, column_name: str) -> Optional[ParameterDefinition]:
@@ -126,9 +132,13 @@ class ExperimentDefinition:
         return pdef.validate_value(value) if pdef is not None else []
 
     def validate_row(self, values: Dict[str, object]) -> List[str]:
-        """Validate a full input row (column_name -> value) against every
-        input parameter's metadata; returns all problems across the row."""
+        """Validate a full input row against every input parameter's
+        metadata; returns all problems across the row. ``values`` may be
+        keyed by parameter *name* (``"aoa"``) or by spreadsheet
+        *column_name* (``"AOA_deg"``) — both are accepted so the validation
+        surface works from either the runtime or the import side."""
         problems: List[str] = []
         for p in self.study.ordered():
-            problems.extend(p.parameter.validate_value(values.get(p.column_name)))
+            val = values.get(p.name, values.get(p.column_name))
+            problems.extend(p.parameter.validate_value(val))
         return problems

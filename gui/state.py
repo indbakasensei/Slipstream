@@ -96,14 +96,21 @@ class AppState(QObject):
     def reload_dataset(self) -> None:
         """Full rebuild from the workbook (start-up and after each batch)."""
         assert self.excel is not None
+        # Phase 5: the input columns (labels + order + values) come from the
+        # active template's study definition, not hardcoded AOA/Velocity.
+        study_params = self.experiment_definition.study.ordered()
+        input_labels = [p.display_name for p in study_params]     # ["AOA","Velocity"]
+        input_names = [p.name for p in study_params]              # ["aoa","velocity"]
         rows: List[Dict[str, object]] = []
         for exp in self.excel.read_experiments():
             out = self.excel.read_row_outputs(exp.row)
             rec: Dict[str, object] = {
                 "Row": exp.row, "CaseID": exp.case_id,
-                "AOA": exp.aoa_deg, "Velocity": exp.velocity,
                 "Status": exp.status or "PENDING",
             }
+            for label, name in zip(input_labels, input_names):
+                pv = exp.parameter(name)
+                rec[label] = pv.value if pv is not None else None
             for name in self.wbp_names:
                 rec[name] = exp.extra_wb_params.get(name)
             rec.update({
@@ -117,7 +124,7 @@ class AppState(QObject):
                 "Duration_min": _num(out["duration"]),
             })
             rows.append(rec)
-        cols = (["Row", "CaseID", "AOA", "Velocity"] + self.wbp_names
+        cols = (["Row", "CaseID"] + input_labels + self.wbp_names
                 + ["Status"] + OUTPUT_COLS)
         self.df = pd.DataFrame(rows, columns=cols)
         self.datasetChanged.emit()

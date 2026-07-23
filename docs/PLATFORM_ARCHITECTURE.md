@@ -1,15 +1,16 @@
 # Slipstream — Universal CFD Platform Architecture
 
-**Status: v2.0.0-dev, Phase 4 (generic experiment model).** This document
-describes an architectural direction, the metadata layer that seeds it
-(Phase 1), the runtime's migration onto it (Phase 2), template-driven
-study definitions and input ordering (Phase 3A, §7), template-driven
-experiment generation/validation/defaults (Phase 3B, §8), and the generic
-`Experiment`/`CaseResult` model that removes the last airfoil-specific
-runtime fields (Phase 4, §9). Through Phase 4 **behavior remains
+**Status: v2.0.0-dev, Phase 5 (generic study I/O layer — platform
+complete).** This document describes an architectural direction, the
+metadata layer that seeds it (Phase 1), the runtime's migration onto it
+(Phase 2), template-driven study definitions and input ordering (Phase 3A,
+§7), template-driven experiment generation/validation/defaults (Phase 3B,
+§8), the generic `Experiment`/`CaseResult` model (Phase 4, §9), and the
+template-driven study I/O boundary — workbook import/export and dataset
+construction (Phase 5, §10). Through Phase 5 **behavior remains
 byte-for-byte identical to v1.0** — every existing project, workflow, Excel
-file, result-JSON, and test is unchanged (workbook and result-JSON
-byte-compatibility both verified by regenerate-and-diff).
+file, result-JSON, and test is unchanged (workbook, result-JSON, schedule
+read-back, and GUI dataset byte-compatibility all verified empirically).
 
 ---
 
@@ -169,32 +170,39 @@ Each phase is independently shippable and preserves behavior:
   `ParameterValue`/`MetricValue` containers; the airfoil-named attributes
   become compatibility accessors. The runtime model no longer contains any
   engineering-specific field. Byte-identical serialization. ✅
-- **Phase 5 — Second template.** Add a genuinely different template
+- **Phase 5 (this sprint) — Generic study I/O layer.** Introduce `StudyIO`
+  (§10): the template-driven boundary that resolves spreadsheet columns,
+  builds `Experiment`s from rows, and drives dataset construction — so
+  workbook import/export and the GUI dataset derive from template metadata,
+  not hardcoded `AOA`/`Velocity`. Byte-identical. This **completes the core
+  platform architecture**: no airfoil assumption remains between the
+  spreadsheet and the runtime. ✅
+- **Phase 6 (future) — Second template.** Add a genuinely different template
   (e.g. internal flow: mass-flow-rate in, pressure-drop out) end-to-end,
-  proving the engine is domain-agnostic. This is the first phase with a
+  proving the engine is domain-agnostic. The first phase with a
   user-visible feature.
-- **Phase 6 — Template selection + dynamic editor + legacy removal.**
-  "New study from template," a parameter editor generated from
+- **Phase 7 (future) — Template selection + dynamic editor + legacy
+  removal.** "New study from template," a parameter editor generated from
   `StudyDefinition`, per-project template resolution replacing
   `get_default_template()`, and (once no caller needs them) removal of the
   legacy `aoa_deg`/`velocity`/`cl`/`cd` accessors.
 
 Guardrail for every phase: *the External Aerodynamics path must produce
 byte-identical Excel rows, result-JSON, and analytics to today.* The
-regression suite (213 tests as of Phase 4) is the contract that guarantees it.
+regression suite (224 tests as of Phase 5) is the contract that guarantees it.
 
 ---
 
-## 5. What Phases 1–4 deliberately do **not** do
+## 5. What Phases 1–5 deliberately do **not** do
 
 No Alpha/Beta/Mach/RPM support wired in; no DOE; no heat transfer, cars,
 pipes, combustion, or multiphase templates; no plugins; no new GUI pages,
 template-selection dialog, or dynamic parameter editor; no second template;
 no solver, analytics, result-extraction, or Excel-*schema* changes; no
-removal of the legacy `aoa_deg`/`velocity`/`cl`/`cd` accessors. Phase 4
-changed *how the runtime model stores* its parameters and metrics (now
-generic containers) — it did not change any value, serialization, or
-behavior.
+removal of the legacy `aoa_deg`/`velocity`/`cl`/`cd` accessors. Phase 5
+changed *where the spreadsheet↔runtime mapping originates* (now the
+template, via `StudyIO`) — it did not change the workbook format, the
+dataset schema, validation behavior, or any value.
 
 ---
 
@@ -485,3 +493,92 @@ instead of a bare attribute; construction builds a handful of small
 dataclass instances per experiment/result. There is no extra storage (the
 dict replaces the former fields) and no measurable change in the 213-test
 suite runtime.
+
+---
+
+## 10. Phase 5 — generic study I/O layer
+
+### 10.1 `StudyIO` (the spreadsheet↔runtime boundary)
+
+`cfdauto/study_io.py` adds `StudyIO` — the layer that maps a study's
+template metadata to and from its spreadsheet representation. It owns the
+*mapping*; `ExcelManager` still owns the *file* (openpyxl) and delegates
+per-row work to it, so exactly one place knows the template↔spreadsheet
+correspondence. Roles across the stack:
+
+| Layer | Owns | Module |
+|---|---|---|
+| `StudyDefinition` | input metadata | `cfdauto/platform/` |
+| `ExperimentDefinition` | materialization (rows, values, validation) | `cfdauto/experiment_definition.py` |
+| **`StudyIO`** | **serialization (column resolution, row↔Experiment)** | `cfdauto/study_io.py` |
+| `ExcelManager` | the openpyxl workbook I/O | `cfdauto/excel_manager.py` |
+
+`StudyIO` imports from `experiment_definition`/`platform`; nothing in the
+platform layer imports it. One-way dependency preserved.
+
+### 10.2 Column resolution — the key to backward-compatible import
+
+The build-in study parameter *names* (`aoa`, `velocity`) are also the
+attribute names on `config.ColumnMap`. So `StudyIO.input_column_header(name)`
+resolves `getattr(column_map, name)` first (honouring a user's renamed
+column), falling back to the template's declared `column_name`:
+
+```
+study param "aoa"  ──►  ColumnMap.aoa  ──►  "AOA_deg"   (or the user's rename)
+```
+
+This is what lets the reader *iterate the template* while a project with a
+custom `ColumnMap` keeps loading unchanged — verified by a test that
+renames both the sheet header and `ColumnMap` and still reads 8 rows.
+
+### 10.3 What now flows through the template
+
+| Concern | Was hardcoded | Now |
+|---|---|---|
+| Required input columns (`_map_columns`) | `(columns.aoa, columns.velocity)` | `StudyIO.input_column_headers()` |
+| Reading a row (`read_experiments`) | explicit `aoa`/`velocity` cell reads + `Experiment(aoa_deg=, velocity=)` | `StudyIO.interpret_row()` → `ExperimentDefinition.build_experiment()` |
+| Workbook generation | (already template-driven, Phase 3B) | `ExperimentDefinition` / `StudyIO.export_input_headers()` |
+| GUI dataset input columns (`state.reload_dataset`) | `{"AOA": exp.aoa_deg, "Velocity": exp.velocity}` + hardcoded `cols` | iterate `experiment_definition.study.ordered()` → `display_name` keys, `exp.parameter(name).value` |
+| Import validation surface | — | `StudyIO.validate_row()` → `ExperimentDefinition.validate_row()` |
+
+`ExcelManager` keeps every public method and behavior; only the *input
+column identity/reading* is delegated. Result writing, `save()`,
+`append_experiment`, WBP discovery, recovery CSV — all unchanged.
+
+### 10.4 Compatibility verification (empirical, not assumed)
+
+- **Import** — captured `read_experiments()` output (row/aoa/velocity/status/
+  extra/case_id) for a standard workbook, a WBP workbook, and edge rows
+  (blank / half-filled / unreadable) *before* the migration; regenerated
+  *after*: **identical**, including the skip rules and WBP extras.
+- **ColumnMap override** — a workbook + config with renamed input columns
+  reads correctly (8 rows) through the template-driven resolver.
+- **GUI dataset** — the DataFrame columns and input values after
+  `reload_dataset` are unchanged (`["Row","CaseID","AOA","Velocity",…]`,
+  `AOA=0.0`, `Velocity=20.0`).
+- **Export** — the generated workbook was already proven byte-identical in
+  Phase 3B; the round-trip (generate → read back) is now covered end-to-end.
+- Full suite: **224 passed** (213 prior, unmodified + 11 new).
+
+### 10.5 Remaining template-specific assumptions
+
+The platform is architecturally complete between the spreadsheet and the
+runtime; the residual airfoil flavor is intentional and cosmetic:
+
+- **`Experiment.validate()`, `case_id`, `geometry_key`** still name
+  `aoa`/`velocity` (via the generic accessors) — airfoil-flavored
+  conveniences; a template-driven `case_id`/validation is a later phase.
+- **The GUI still labels input columns `AOA`/`Velocity`** — because the
+  template's `display_name`s are those strings; a different template would
+  yield different labels automatically.
+- **`config.ColumnMap`** still enumerates the built-in inputs/outputs as
+  fixed fields; a fully arbitrary column vocabulary is a future
+  generalization, not required by the single External Aerodynamics template.
+- **Legacy accessor removal** waits for Phase 7.
+
+### 10.6 Performance impact
+
+Negligible. `read_experiments` does the same number of cell reads; the
+per-row work now goes through two small method calls (`interpret_row` →
+`build_experiment`) instead of an inline `Experiment(...)`. No measurable
+change in the 224-test suite runtime.

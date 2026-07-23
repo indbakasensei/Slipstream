@@ -507,6 +507,7 @@ slipstream/
 │   ├── project_manager.py   # v1.0.0-alpha.5: project folders + metadata + recents
 │   ├── simulation_context.py # v2.0.0-dev: runtime template-metadata source of truth
 │   ├── experiment_definition.py # v2.0.0-dev: runtime materialization of a study's input schema
+│   ├── study_io.py          # v2.0.0-dev: template-driven spreadsheet↔runtime boundary
 │   ├── platform/            # v2.0.0-dev: universal CFD platform metadata
 │   │   ├── parameters.py    #   ParameterDefinition (generic inputs)
 │   │   ├── metrics.py       #   MetricDefinition (generic outputs)

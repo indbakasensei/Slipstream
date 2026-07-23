@@ -29,6 +29,7 @@ from .config import ExcelConfig
 from .exceptions import ConfigError, ExcelWriteError
 from .models import (Experiment, CaseResult, STATUS_DONE, STATUS_FAILED,
                      STATUS_PENDING, STATUS_RUNNING, STATUS_SKIP)
+from .study_io import StudyIO
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +52,11 @@ class ExcelManager:
         self.ws: Worksheet = self.wb[cfg.sheet]
         self._col: Dict[str, int] = {}          # header text -> column index
         self._wbp_cols: Dict[str, int] = {}     # WB param name -> column index
+        # Phase 5: the study-I/O layer resolves which columns carry the
+        # study's input parameters and builds Experiments from them. Built
+        # here (before column mapping) so the required-column check and the
+        # reader both go through the same template-driven boundary.
+        self._study_io = StudyIO.default(cfg.columns)
         self._map_columns()
 
     # ------------------------------------------------------------------ #
@@ -67,7 +73,10 @@ class ExcelManager:
                 self._wbp_cols[name[len(WB_PARAM_PREFIX):].strip()] = cell.column
 
         c = self.cfg.columns
-        for required in (c.aoa, c.velocity):
+        # Phase 5: the required input columns come from the study definition
+        # (via StudyIO) rather than a hardcoded (aoa, velocity) pair — same
+        # headers today, correct for any future template.
+        for required in self._study_io.input_column_headers():
             if required not in self._col:
                 raise ConfigError(
                     f"Required input column '{required}' not found in header row "
@@ -96,38 +105,34 @@ class ExcelManager:
     # Reading the schedule
     # ------------------------------------------------------------------ #
     def read_experiments(self) -> List[Experiment]:
-        """Parse every schedule row that has both inputs filled in."""
+        """Parse every schedule row that has all inputs filled in.
+
+        Phase 5: which columns are the study's inputs, and how a row maps to
+        an :class:`Experiment`, is owned by the template-driven
+        :class:`~cfdauto.study_io.StudyIO`. This method still owns the
+        openpyxl cell access; StudyIO owns the mapping.
+
+        NOTE: value *validation* (e.g. velocity > 0) is deliberately NOT done
+        here — the orchestrator validates and marks such rows FAILED in the
+        workbook, which is far more visible to the user than a console
+        warning.
+        """
+        io = self._study_io
+        param_names = io.input_parameter_names()
+        headers = io.input_column_headers()
         c = self.cfg.columns
         experiments: List[Experiment] = []
         for row in range(self.cfg.header_row + 1, self.ws.max_row + 1):
-            aoa = self._cell(row, c.aoa).value
-            vel = self._cell(row, c.velocity).value
-            if aoa is None and vel is None:
-                continue  # blank spacer row
-            if aoa is None or vel is None:
-                log.warning("Row %d skipped: needs both AOA and velocity.", row)
-                continue
-            try:
-                exp = Experiment(
-                    row=row,
-                    aoa_deg=float(aoa),
-                    velocity=float(vel),
-                    status=str(self._cell(row, c.status).value or "").strip().upper(),
-                    extra_wb_params={
-                        name: float(self.ws.cell(row=row, column=col).value)
-                        for name, col in self._wbp_cols.items()
-                        if self.ws.cell(row=row, column=col).value is not None
-                    },
-                )
-            except (TypeError, ValueError) as exc:
-                # Cell content that cannot even be parsed as a number.
-                log.warning("Row %d skipped (unreadable value): %s", row, exc)
-                continue
-            # NOTE: value *validation* (e.g. velocity > 0) is deliberately NOT
-            # done here — the orchestrator validates and marks such rows
-            # FAILED in the workbook, which is far more visible to the user
-            # than a console warning.
-            experiments.append(exp)
+            input_values = {name: self._cell(row, header).value
+                            for name, header in zip(param_names, headers)}
+            wbp_values = {name: self.ws.cell(row=row, column=col).value
+                          for name, col in self._wbp_cols.items()}
+            status = str(self._cell(row, c.status).value or "").strip().upper()
+            exp, warning = io.interpret_row(row, input_values, wbp_values, status)
+            if warning:
+                log.warning("%s", warning)
+            if exp is not None:
+                experiments.append(exp)
         return experiments
 
     def pending(self, retry_failed: bool, rerun_stale_running: bool) -> List[Experiment]:
