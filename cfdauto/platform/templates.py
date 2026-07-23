@@ -1,20 +1,20 @@
-"""Simulation templates (Universal Platform, Phase 1).
+"""Simulation templates (Universal Platform, Phases 1–3A).
 
 A :class:`SimulationTemplate` bundles everything that defines one *kind*
-of CFD study — its input parameters, its output metrics, and its solver/
-reporting defaults — as pure metadata. Slipstream's long-term direction
-(see ``docs/PLATFORM_ARCHITECTURE.md``) is that the core engine knows
-nothing about airfoils: the current AOA/velocity wing workflow becomes
-just one template among many.
+of CFD study — its input parameters, its output metrics, its ordered
+:class:`~cfdauto.platform.study_definition.StudyDefinition`, and its
+solver/reporting defaults — as pure metadata. Slipstream's long-term
+direction (see ``docs/PLATFORM_ARCHITECTURE.md``) is that the core engine
+knows nothing about airfoils: the current AOA/velocity wing workflow
+becomes just one template among many.
 
-Phase 1 ships exactly one template, :data:`EXTERNAL_AERODYNAMICS`, whose
-contents *describe* — not drive — the existing application: its two
-parameters are the schedule's AOA/Velocity columns, its metrics are the
-CL/CD/L-D/Lift/Drag outputs every panel already shows, and its defaults
-mirror ``config.py``'s. No runtime code consumes this yet; it exists so
-future phases can migrate the engine onto the abstraction incrementally
-while this metadata is already proven to round-trip through the registry
-and tests.
+The single template, :data:`EXTERNAL_AERODYNAMICS`, *describes* the
+existing application. Phase 3A adds its :class:`StudyDefinition`, which
+declares the input ordering and spreadsheet-column mapping (AOA →
+``AOA_deg``, Velocity → ``Velocity_m_s``) that the runtime previously
+hardcoded. The parameter/metric objects are defined once as module
+constants and shared between ``supported_parameters`` and the study
+definition, so there is a single source of truth for each.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from typing import Dict, Optional, Tuple
 
 from .metrics import SOURCE_DERIVED, MetricDefinition
 from .parameters import ParameterDefinition, ParameterType
+from .study_definition import StudyDefinition, StudyParameter
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,10 @@ class SimulationTemplate:
         What studies of this kind are for.
     supported_parameters / supported_metrics:
         The template's input/output vocabulary, in display order.
+    study_definition:
+        The ordered, spreadsheet-aware input specification
+        (:class:`StudyDefinition`). ``None`` means "not declared"; callers
+        should fall back to ``supported_parameters`` order in that case.
     default_solver:
         Identifier of the solver backend this template targets
         (``"ansys-fluent"`` today; a future OpenFOAM backend would be a
@@ -59,6 +64,7 @@ class SimulationTemplate:
     description: str = ""
     supported_parameters: Tuple[ParameterDefinition, ...] = ()
     supported_metrics: Tuple[MetricDefinition, ...] = ()
+    study_definition: Optional[StudyDefinition] = None
     default_solver: str = "ansys-fluent"
     default_boundary_conditions: Dict[str, str] = field(default_factory=dict)
     report_type: str = "study-summary"
@@ -81,11 +87,63 @@ class SimulationTemplate:
 
 
 # --------------------------------------------------------------------------- #
-# The one Phase 1 template: a faithful description of today's application.
-# Values below mirror the existing defaults in cfdauto/config.py
-# (aoa_parameter="P1", inlet_type="velocity_inlet", aoa range per the
-# ParamsPanel/linter conventions) — descriptive, never authoritative yet.
+# External Aerodynamics — a faithful description of today's application.
+# Parameter/metric objects are defined once here and shared between
+# supported_parameters and the study definition (single source of truth).
+# Values mirror cfdauto/config.py defaults (aoa_parameter="P1",
+# inlet_type="velocity_inlet") and the ColumnMap defaults (AOA_deg /
+# Velocity_m_s) — descriptive; config remains authoritative at runtime.
 # --------------------------------------------------------------------------- #
+_AOA = ParameterDefinition(
+    # display_name holds the short label the UI shows (Phase 2); the verbose
+    # explanation lives in `description`.
+    id="angle-of-attack", name="aoa", display_name="AOA",
+    unit="deg", type=ParameterType.FLOAT, default_value=0.0,
+    minimum=-90.0, maximum=90.0, step=1.0, required=True,
+    category="flow", workbench_parameter="P1",
+    description="Angle of attack: incidence angle of the body relative to "
+                "the freestream, driven via the Workbench geometry rotation "
+                "parameter.")
+
+_VELOCITY = ParameterDefinition(
+    id="freestream-velocity", name="velocity", display_name="Velocity",
+    unit="m/s", type=ParameterType.FLOAT, default_value=20.0,
+    minimum=0.01, maximum=None, step=5.0, required=True,
+    category="flow", workbench_parameter=None,
+    description="Freestream velocity magnitude, applied at the Fluent "
+                "velocity inlet (not a Workbench parameter).")
+
+_EXT_AERO_METRICS: Tuple[MetricDefinition, ...] = (
+    MetricDefinition(
+        id="lift-coefficient", name="cl", display_name="CL",
+        description="Lift coefficient from the solver's lift report "
+                    "definition, normalized by the configured reference "
+                    "values."),
+    MetricDefinition(
+        id="drag-coefficient", name="cd", display_name="CD",
+        description="Drag coefficient from the solver's drag report "
+                    "definition."),
+    MetricDefinition(
+        id="lift-to-drag-ratio", name="l_over_d", display_name="L/D",
+        source=SOURCE_DERIVED,
+        description="Aerodynamic efficiency, CL divided by CD."),
+    MetricDefinition(
+        id="lift-force", name="lift", display_name="Lift", unit="N",
+        description="Wind-axis lift force on the configured wall zones."),
+    MetricDefinition(
+        id="drag-force", name="drag", display_name="Drag", unit="N",
+        description="Wind-axis drag force on the configured wall zones."),
+)
+
+# The study definition binds those shared parameters to their spreadsheet
+# columns and ordering — the ordering the runtime previously hardcoded as
+# "AOA first, Velocity second". Column names mirror config.ColumnMap
+# defaults.
+_EXT_AERO_STUDY = StudyDefinition(parameters=(
+    StudyParameter(parameter=_AOA, column_name="AOA_deg", order=0),
+    StudyParameter(parameter=_VELOCITY, column_name="Velocity_m_s", order=1),
+))
+
 EXTERNAL_AERODYNAMICS = SimulationTemplate(
     id="external-aerodynamics",
     name="External Aerodynamics",
@@ -93,48 +151,9 @@ EXTERNAL_AERODYNAMICS = SimulationTemplate(
         "Parametric external-flow study of a lifting body: sweep angle of "
         "attack and freestream velocity, extract force coefficients. This "
         "template describes Slipstream's original wing/airfoil workflow."),
-    supported_parameters=(
-        # display_name holds the *short label the UI shows* (Phase 2
-        # reconciliation — the runtime GUI reads these verbatim); the
-        # verbose human explanation lives in `description`.
-        ParameterDefinition(
-            id="angle-of-attack", name="aoa", display_name="AOA",
-            unit="deg", type=ParameterType.FLOAT, default_value=0.0,
-            minimum=-90.0, maximum=90.0, step=1.0, required=True,
-            category="flow", workbench_parameter="P1",
-            description="Angle of attack: incidence angle of the body "
-                        "relative to the freestream, driven via the "
-                        "Workbench geometry rotation parameter."),
-        ParameterDefinition(
-            id="freestream-velocity", name="velocity",
-            display_name="Velocity", unit="m/s",
-            type=ParameterType.FLOAT, default_value=20.0,
-            minimum=0.01, maximum=None, step=5.0, required=True,
-            category="flow", workbench_parameter=None,
-            description="Freestream velocity magnitude, applied at the "
-                        "Fluent velocity inlet (not a Workbench parameter)."),
-    ),
-    supported_metrics=(
-        MetricDefinition(
-            id="lift-coefficient", name="cl", display_name="CL",
-            description="Lift coefficient from the solver's lift report "
-                        "definition, normalized by the configured "
-                        "reference values."),
-        MetricDefinition(
-            id="drag-coefficient", name="cd", display_name="CD",
-            description="Drag coefficient from the solver's drag report "
-                        "definition."),
-        MetricDefinition(
-            id="lift-to-drag-ratio", name="l_over_d", display_name="L/D",
-            source=SOURCE_DERIVED,
-            description="Aerodynamic efficiency, CL divided by CD."),
-        MetricDefinition(
-            id="lift-force", name="lift", display_name="Lift", unit="N",
-            description="Wind-axis lift force on the configured wall zones."),
-        MetricDefinition(
-            id="drag-force", name="drag", display_name="Drag", unit="N",
-            description="Wind-axis drag force on the configured wall zones."),
-    ),
+    supported_parameters=(_AOA, _VELOCITY),
+    supported_metrics=_EXT_AERO_METRICS,
+    study_definition=_EXT_AERO_STUDY,
     default_solver="ansys-fluent",
     default_boundary_conditions={
         "inlet_type": "velocity_inlet",

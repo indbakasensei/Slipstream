@@ -20,12 +20,13 @@ per-project instead of always defaulting.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from .platform import (
     MetricDefinition,
     ParameterDefinition,
     SimulationTemplate,
+    StudyDefinition,
     get_default_template,
 )
 
@@ -71,3 +72,22 @@ class SimulationContext:
     def metric(self, name_or_id: str) -> Optional[MetricDefinition]:
         """Metric definition by ``name`` or ``id`` (None if absent)."""
         return self.template.metric(name_or_id)
+
+    # -- study definition (Phase 3A: template-driven input ordering) ---- #
+    @property
+    def study_definition(self) -> Optional[StudyDefinition]:
+        return self.template.study_definition
+
+    def input_columns(self) -> List[str]:
+        """Ordered dataset/UI column keys for this study's *input*
+        parameters — the labels the GUI dataset uses as its input-column
+        headers (e.g. ``["AOA", "Velocity"]``), sourced from the template's
+        StudyDefinition ordering rather than hardcoded at each call site.
+
+        Falls back to ``supported_parameters`` order if the template
+        declares no study definition, so every template resolves cleanly.
+        """
+        sd = self.template.study_definition
+        if sd is not None and sd.parameters:
+            return sd.display_names()
+        return [p.display_name for p in self.template.supported_parameters]

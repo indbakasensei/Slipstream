@@ -30,4 +30,5 @@ from .registry import (                                     # noqa: F401
     get_default_registry,
     get_default_template,
 )
+from .study_definition import StudyDefinition, StudyParameter  # noqa: F401
 from .templates import EXTERNAL_AERODYNAMICS, SimulationTemplate  # noqa: F401

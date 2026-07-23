@@ -1,11 +1,11 @@
 # Slipstream — Universal CFD Platform Architecture
 
-**Status: v2.0.0-dev, Phase 2 (runtime integration begun).** This document
-describes an architectural direction, the metadata layer that seeds it
-(Phase 1), and the start of the runtime's migration onto it (Phase 2). As
-of Phase 2 the runtime *reads* parameter/metric metadata from the platform
-layer in a few safe places (see §6), but **behavior is byte-for-byte
-identical to v1.0** — every existing project, workflow, and test is
+**Status: v2.0.0-dev, Phase 3A (template-driven study definition).** This
+document describes an architectural direction, the metadata layer that
+seeds it (Phase 1), the runtime's migration onto it (Phase 2), and the
+introduction of template-driven study definitions and input ordering
+(Phase 3A, §7). Through Phase 3A **behavior remains byte-for-byte identical
+to v1.0** — every existing project, workflow, Excel file, and test is
 unchanged.
 
 ---
@@ -146,31 +146,38 @@ Each phase is independently shippable and preserves behavior:
   parameter/metric *display* metadata (labels, units, editing bounds,
   defaults, legend names) to read from the template instead of literals.
   Byte-identical behavior. ✅
-- **Phase 3 — Column mapping via the template.** Let `ExcelManager`'s
+- **Phase 3A (this sprint) — Template-driven study definition.** Introduce
+  `StudyDefinition` (§7): the template now owns the *ordered* input
+  specification and spreadsheet-column metadata, and the runtime asks the
+  template for input ordering instead of hardcoding "AOA first, Velocity
+  second." Byte-identical behavior; no Excel generated yet. ✅
+- **Phase 3B — Column mapping via the template.** Let `ExcelManager`'s
   column vocabulary and the linter's rules be *derived from* the active
-  template's `supported_parameters`/`supported_metrics` instead of
-  hard-coded, with External Aerodynamics reproducing today's exact columns.
+  template's `StudyDefinition`/metrics instead of `config.ColumnMap`, with
+  External Aerodynamics reproducing today's exact columns, and wire an
+  Excel generator to `StudyDefinition.spreadsheet_columns()`.
 - **Phase 4 — Second template.** Add a genuinely different template
   (e.g. internal flow: mass-flow-rate in, pressure-drop out) end-to-end,
   proving the engine is domain-agnostic. This is the first phase with a
   user-visible feature.
 - **Phase 5 — Template selection + dynamic editor.** "New study from
-  template," a parameter editor generated from `supported_parameters`, and
+  template," a parameter editor generated from `StudyDefinition`, and
   per-project template resolution replacing `get_default_template()`.
 
 Guardrail for every phase: *the External Aerodynamics path must produce
 byte-identical Excel rows and identical analytics to today.* The regression
-suite (179 tests as of Phase 2) is the contract that guarantees it.
+suite (188 tests as of Phase 3A) is the contract that guarantees it.
 
 ---
 
-## 5. What Phases 1–2 deliberately do **not** do
+## 5. What Phases 1–3A deliberately do **not** do
 
 No Alpha/Beta/Mach/RPM support wired in; no DOE; no heat transfer, cars,
 pipes, combustion, or multiphase templates; no plugins; no new GUI pages,
 template-selection dialog, or dynamic parameter editor; no second template;
-no solver, analytics, Excel-schema, or result-extraction changes. Phase 2
-migrated *duplicated display metadata only* — it did not change any runtime
+no solver, analytics, Excel-schema, or result-extraction changes; no Excel
+*generated* from the new study metadata. Phases 2–3A migrated *duplicated
+display and ordering metadata only* — they did not change any runtime
 logic.
 
 ---
@@ -229,3 +236,75 @@ cleaner split (short label vs. explanation) that also feeds future tooltips.
 - **The velocity editing cap (`5000`)** remains a GUI-local constant: the
   template models velocity as physically unbounded (`maximum=None`), so the
   spin box's finite cap is a UI affordance, not a domain claim.
+
+---
+
+## 7. Phase 3A — template-driven study definition
+
+### 7.1 `StudyDefinition` and `StudyParameter`
+
+`cfdauto/platform/study_definition.py` adds two pure-metadata models:
+
+- **`StudyParameter`** binds a `ParameterDefinition` to its place in a
+  study: `column_name` (spreadsheet header), `order`, `visible`,
+  `editable`, `group`. It *references* the shared `ParameterDefinition`
+  (name/display_name/unit/bounds/default delegate to it) — no field is
+  copied, so there is one source of truth per parameter.
+- **`StudyDefinition`** is the ordered tuple of `StudyParameter`s plus
+  descriptive accessors: `ordered()`, `visible()`, `editable()`,
+  `parameter(name|id|column)`, `column_names()`, `display_names()`, and
+  `spreadsheet_columns()` (the ordered per-column metadata a future Excel
+  generator will iterate — descriptive only; **nothing generates a
+  workbook in Phase 3A**).
+
+Every accessor sorts by `order`, so callers never depend on construction
+order. Both models are frozen; no Qt, solver, or runtime logic.
+
+### 7.2 Template integration
+
+`SimulationTemplate` gains a `study_definition` field. External
+Aerodynamics declares:
+
+| Parameter | `column_name` | `order` |
+|---|---|---|
+| `aoa` | `AOA_deg` | 0 |
+| `velocity` | `Velocity_m_s` | 1 |
+
+The `AOA`/`Velocity` `ParameterDefinition` objects are defined once as
+module constants (`_AOA`, `_VELOCITY`) and shared between the template's
+`supported_parameters` and its study definition — verified by a test that
+asserts `study_definition.parameter("aoa").parameter is template.parameter("aoa")`.
+The `column_name`s mirror `config.ColumnMap`'s defaults.
+
+### 7.3 Ordering assumption removed
+
+`SimulationContext.input_columns()` returns the study's ordered input
+column keys (`["AOA", "Velocity"]`), sourced from the study definition
+(falling back to `supported_parameters` order for a template without one).
+The two runtime sites that hardcoded that ordering now read it:
+
+| Where | Was hardcoded | Now reads from |
+|---|---|---|
+| `ChartsPanel._rebuild_axes` | `["AOA", "Velocity"] + wbp` | `context.input_columns() + wbp` |
+| `QueuePanel.columns()` | `["Row", "AOA", "Velocity"] + …` | `["Row"] + context.input_columns() + …` |
+
+Both produce byte-identical output today (verified at runtime and by the
+unmodified GUI smoke tests) and would order correctly for any future
+template automatically.
+
+### 7.4 What Phase 3A deliberately leaves for later
+
+- **`config.ColumnMap` stays authoritative** for actual Excel reading/
+  writing. `StudyDefinition.column_name` currently *duplicates* the
+  ColumnMap defaults descriptively; unifying them (deriving the runtime
+  column vocabulary from the template) is Phase 3B — doing it now would
+  risk how existing workbooks are read.
+- **`Experiment` and `state.py`'s dataset construction remain
+  aoa/velocity-shaped.** The dataset still keys inputs by
+  `display_name` and maps them to `Experiment.aoa_deg`/`velocity`;
+  generalizing the `Experiment` model to arbitrary parameters is a deeper
+  later phase. Phase 3A removed the *display-ordering* assumptions, not the
+  model's shape.
+- **No Excel is generated** from `spreadsheet_columns()` — that helper is
+  the seam a Phase 3B generator will consume; `make_experiment_template.py`
+  is untouched.

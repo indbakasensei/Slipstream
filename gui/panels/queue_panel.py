@@ -88,7 +88,10 @@ class QueuePanel(QWidget):
 
     # ------------------------------------------------------------------ #
     def columns(self):
-        return (["Row", "AOA", "Velocity"] + self.state.wbp_names
+        # Phase 3A: input-column order (AOA, Velocity) comes from the active
+        # template's study definition rather than being hardcoded here.
+        return (["Row"] + self.state.context.input_columns()
+                + self.state.wbp_names
                 + ["Status", "CL", "CD", "L/D", "It", "Conv"])
 
     def refresh(self) -> None:
