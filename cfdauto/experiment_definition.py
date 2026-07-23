@@ -25,6 +25,7 @@ import itertools
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
+from .models import Experiment, ParameterValue
 from .platform import ParameterDefinition, StudyDefinition
 from .simulation_context import SimulationContext
 
@@ -90,6 +91,26 @@ class ExperimentDefinition:
                 (p.default_value,) if p.default_value is not None else ())
             axes.append([float(v) for v in vals])
         return [tuple(combo) for combo in itertools.product(*axes)]
+
+    # -- generic experiment construction (Phase 4) ---------------------- #
+    def build_parameter_values(self, values: Dict[str, float]
+                               ) -> Dict[str, ParameterValue]:
+        """Construct generic :class:`ParameterValue` containers for one row
+        of input values (keyed by parameter *name*), in study order. Only
+        this study's parameters are included; unknown keys are ignored."""
+        out: Dict[str, ParameterValue] = {}
+        for p in self.study.ordered():
+            if p.name in values:
+                out[p.name] = ParameterValue(p.name, float(values[p.name]))
+        return out
+
+    def build_experiment(self, row: int, values: Dict[str, float],
+                         status: str = "") -> Experiment:
+        """Materialize a generic :class:`Experiment` for ``row`` from a
+        name→value mapping, using this study's parameter containers. The
+        runtime never names AOA/velocity to do this — it asks the template."""
+        return Experiment(row=row, status=status,
+                          parameters=self.build_parameter_values(values))
 
     # -- validation (template-driven; delegates to ParameterDefinition) - #
     def parameter_for_column(self, column_name: str) -> Optional[ParameterDefinition]:

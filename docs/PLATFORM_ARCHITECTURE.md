@@ -1,14 +1,15 @@
 # Slipstream — Universal CFD Platform Architecture
 
-**Status: v2.0.0-dev, Phase 3B (template-driven experiment engine).** This
-document describes an architectural direction, the metadata layer that
-seeds it (Phase 1), the runtime's migration onto it (Phase 2), template-
-driven study definitions and input ordering (Phase 3A, §7), and template-
-driven experiment generation, validation, and defaults (Phase 3B, §8).
-Through Phase 3B **behavior remains byte-for-byte identical to v1.0** —
-every existing project, workflow, Excel file, and test is unchanged; the
-generated schedule workbook is structurally identical to before (verified
-by regenerate-and-diff).
+**Status: v2.0.0-dev, Phase 4 (generic experiment model).** This document
+describes an architectural direction, the metadata layer that seeds it
+(Phase 1), the runtime's migration onto it (Phase 2), template-driven
+study definitions and input ordering (Phase 3A, §7), template-driven
+experiment generation/validation/defaults (Phase 3B, §8), and the generic
+`Experiment`/`CaseResult` model that removes the last airfoil-specific
+runtime fields (Phase 4, §9). Through Phase 4 **behavior remains
+byte-for-byte identical to v1.0** — every existing project, workflow, Excel
+file, result-JSON, and test is unchanged (workbook and result-JSON
+byte-compatibility both verified by regenerate-and-diff).
 
 ---
 
@@ -163,29 +164,37 @@ Each phase is independently shippable and preserves behavior:
   template's `StudyDefinition` column names, so a project's column
   vocabulary has one authoritative origin. (Deferred here because existing
   workbooks with custom `ColumnMap` overrides must keep reading unchanged.)
-- **Phase 4 — Second template.** Add a genuinely different template
+- **Phase 4 (this sprint) — Generic experiment model.** Refactor the
+  runtime `Experiment`/`CaseResult` (§9) to store generic
+  `ParameterValue`/`MetricValue` containers; the airfoil-named attributes
+  become compatibility accessors. The runtime model no longer contains any
+  engineering-specific field. Byte-identical serialization. ✅
+- **Phase 5 — Second template.** Add a genuinely different template
   (e.g. internal flow: mass-flow-rate in, pressure-drop out) end-to-end,
   proving the engine is domain-agnostic. This is the first phase with a
   user-visible feature.
-- **Phase 5 — Template selection + dynamic editor.** "New study from
-  template," a parameter editor generated from `StudyDefinition`, and
-  per-project template resolution replacing `get_default_template()`.
+- **Phase 6 — Template selection + dynamic editor + legacy removal.**
+  "New study from template," a parameter editor generated from
+  `StudyDefinition`, per-project template resolution replacing
+  `get_default_template()`, and (once no caller needs them) removal of the
+  legacy `aoa_deg`/`velocity`/`cl`/`cd` accessors.
 
 Guardrail for every phase: *the External Aerodynamics path must produce
-byte-identical Excel rows and identical analytics to today.* The regression
-suite (198 tests as of Phase 3B) is the contract that guarantees it.
+byte-identical Excel rows, result-JSON, and analytics to today.* The
+regression suite (213 tests as of Phase 4) is the contract that guarantees it.
 
 ---
 
-## 5. What Phases 1–3B deliberately do **not** do
+## 5. What Phases 1–4 deliberately do **not** do
 
 No Alpha/Beta/Mach/RPM support wired in; no DOE; no heat transfer, cars,
 pipes, combustion, or multiphase templates; no plugins; no new GUI pages,
 template-selection dialog, or dynamic parameter editor; no second template;
-no solver, analytics, result-extraction, or Excel-*schema* changes. Phase
-3B changed *where the input-column and default-sweep metadata originate*
-(now the template) — it did not change the workbook's structure, the
-schedule-reading path, or any runtime logic.
+no solver, analytics, result-extraction, or Excel-*schema* changes; no
+removal of the legacy `aoa_deg`/`velocity`/`cl`/`cd` accessors. Phase 4
+changed *how the runtime model stores* its parameters and metrics (now
+generic containers) — it did not change any value, serialization, or
+behavior.
 
 ---
 
@@ -386,3 +395,93 @@ unchanged in practice.
 - **The `Experiment` model and dataset schema stay aoa/velocity-shaped.**
   Generalizing them to arbitrary parameters is a later phase; Phase 3B
   moved the *column and default-sweep metadata*, not the model's shape.
+
+---
+
+## 9. Phase 4 — generic experiment model
+
+### 9.1 Generic value containers
+
+`cfdauto/models.py` adds two lightweight runtime containers:
+
+- **`ParameterValue`** — `parameter_id`, `value`, `source`
+  (`schedule`/`wbp`/`derived`/`override`), `status`. One runtime input.
+- **`MetricValue`** — `metric_id`, `value`, `unit`, `status`. One computed
+  result.
+
+Their `*_id`s match the corresponding `name` in the active template's
+`ParameterDefinition`/`MetricDefinition`, so the runtime never needs a new
+*field* to carry a new quantity (RPM, pressure, torque, …) — only a new
+dict *entry*.
+
+### 9.2 `Experiment` and `CaseResult` store generically
+
+The spec's idealized single "Experiment {parameters, metrics}" maps onto
+this codebase's existing input/output split:
+
+| Spec concept | Lives on | Authoritative store |
+|---|---|---|
+| Parameters | `Experiment` | `self.parameters: Dict[str, ParameterValue]` |
+| Metrics | `CaseResult` | `self.metrics: Dict[str, MetricValue]` |
+
+`Experiment` no longer has `aoa_deg`/`velocity` fields; `CaseResult` no
+longer has `cl`/`cd`/`lift_n`/`drag_n` fields. Those names are now
+**compatibility accessors** (property + setter) that route to the single
+dict — there is exactly one source of truth, no duplicate storage
+(verified by tests asserting e.g. `"aoa_deg" not in vars(experiment)`).
+Run bookkeeping on `CaseResult` (`iterations`, `converged`, `error`,
+timestamps, paths) stays as plain attributes — it is not a physical metric.
+
+### 9.3 Backward compatibility — how everything keeps working
+
+| Legacy usage | Still works because |
+|---|---|
+| `Experiment(row=, aoa_deg=, velocity=, extra_wb_params=)` | `__init__` keeps the legacy signature and builds the `parameters` dict from it |
+| `exp.aoa_deg`, `exp.velocity`, `exp.extra_wb_params` | compatibility properties over `parameters` |
+| `exp.aoa_deg = 12.0` | property setter writes back to `parameters["aoa"]` |
+| `CaseResult(cl=, cd=, …)` / `res.cl, res.cd = a, b` | `__init__` + property setters populate `metrics` |
+| `res.cl`, `res.cl_over_cd`, … | accessors read from `metrics` |
+| `res.to_json_dict()` | rebuilt explicitly with the **same keys in the same order** as the former `asdict(self)` |
+| result-JSON `"experiment"` sub-dict | orchestrator now calls `exp.to_json_dict()` (was `vars(exp)`), producing the identical `{row, aoa_deg, velocity, status, extra_wb_params}` |
+
+Both serialization paths were verified by capturing a real result-JSON
+before the refactor and diffing the regenerated one after — **identical**.
+The `Excel` writer, `Workbench`/`Fluent` controllers, the ledger, and
+analytics all read/write through the accessors unchanged.
+
+### 9.4 Generic accessors and template-driven construction
+
+- `Experiment.parameter(name)` / `parameters_dict()`,
+  `CaseResult.metric(name)` / `metrics_dict()` — the domain-neutral way to
+  read values; future templates never add a property.
+- `ExperimentDefinition.build_parameter_values(values)` and
+  `build_experiment(row, values)` construct generic containers /
+  experiments from a name→value mapping **without ever naming
+  AOA/velocity** — the runtime asks the template. (Available and tested;
+  the schedule *reader* in `ExcelManager` is not yet rewired onto it — see
+  §9.5.)
+
+### 9.5 Remaining airfoil assumptions (deferred)
+
+- **`ExcelManager.read_experiments()` still constructs experiments by
+  reading the `AOA_deg`/`Velocity_m_s` columns explicitly** (via
+  `config.ColumnMap`) rather than iterating the study definition. Rewiring
+  it onto `ExperimentDefinition.build_experiment()` is the natural next
+  step but touches the authoritative schedule-reading path; deferred to
+  keep this sprint's blast radius to the model itself.
+- **`Experiment.validate()`, `case_id`, `geometry_key`** still reference
+  `aoa`/`velocity` by name (via the accessors). They are airfoil-flavored
+  conveniences; generalizing them (e.g. a template-driven `case_id`) is a
+  later phase.
+- **The GUI dataset** (`state.py`) still keys inputs as `"AOA"`/`"Velocity"`
+  columns. Unchanged this sprint.
+- **Legacy accessor removal** happens only in Phase 6, once no caller needs
+  them.
+
+### 9.6 Performance impact
+
+Negligible. Reads/writes now go through a dict lookup + attribute access
+instead of a bare attribute; construction builds a handful of small
+dataclass instances per experiment/result. There is no extra storage (the
+dict replaces the former fields) and no measurable change in the 213-test
+suite runtime.

@@ -487,7 +487,7 @@ slipstream/
 ├── cfdauto/                 # engine package (~4000 lines, 100% type-hinted)
 │   ├── __init__.py          # version
 │   ├── config.py            # dataclasses with validation
-│   ├── models.py            # Experiment, CaseResult, Status constants
+│   ├── models.py            # Experiment/CaseResult (generic ParameterValue/MetricValue), Status
 │   ├── events.py            # EventBus (thread-safe fan-out)
 │   ├── exceptions.py        # CaseError, FrameworkError, FluentError, ...
 │   ├── excel_manager.py     # atomic Excel read/write with retry

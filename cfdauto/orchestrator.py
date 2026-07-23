@@ -411,7 +411,7 @@ class Orchestrator:
     # ------------------------------------------------------------------ #
     def _record_success(self, exp: Experiment, res: CaseResult) -> None:
         self.state.write_result_json(exp, {"status": STATUS_DONE,
-                                           "experiment": vars(exp) | {},
+                                           "experiment": exp.to_json_dict(),
                                            **res.to_json_dict()})
         self._write_excel(exp, res, STATUS_DONE)
         self.bus.emit("case.done", row=exp.row, case_id=exp.case_id,
@@ -426,7 +426,7 @@ class Orchestrator:
         res.error = res.error or msg
         try:
             self.state.write_result_json(exp, {"status": STATUS_FAILED,
-                                               "experiment": vars(exp) | {},
+                                               "experiment": exp.to_json_dict(),
                                                **res.to_json_dict()})
         except Exception:
             log.debug("Could not write result.json for failed row %d", exp.row)

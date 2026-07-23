@@ -5,16 +5,31 @@ Two objects travel through the pipeline:
 * :class:`Experiment` — one row of the Excel schedule (the *inputs*).
 * :class:`CaseResult` — everything the solver produced for that row (the *outputs*).
 
-Keeping these as frozen-ish dataclasses (rather than passing dicts around) gives
-us type safety, IDE support, and one obvious place to add new design variables
-later (e.g. sideslip angle, Reynolds number, flap deflection).
+Generic experiment model (Universal Platform, Phase 4)
+------------------------------------------------------
+Both objects now store their engineering quantities generically:
+
+* :class:`Experiment` stores :class:`ParameterValue` objects in
+  ``.parameters`` (keyed by parameter name — ``"aoa"``, ``"velocity"``,
+  and any ``WBP:*`` extras). It has *no* airfoil-specific fields.
+* :class:`CaseResult` stores :class:`MetricValue` objects in ``.metrics``
+  (``"cl"``, ``"cd"``, ``"lift_n"``, ``"drag_n"``).
+
+The legacy attributes (``experiment.aoa_deg``, ``experiment.velocity``,
+``result.cl``, ``result.cd``, …) are preserved as **compatibility
+accessors** that route to the generic stores — there is one source of
+truth (the dict), never duplicate storage. Construction, iteration,
+serialization, and every existing caller keep working unchanged; the
+result-JSON produced is byte-identical to before. See
+``docs/PLATFORM_ARCHITECTURE.md`` for the migration plan and the eventual
+removal of the legacy accessors.
 """
 
 from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -27,33 +42,117 @@ STATUS_FAILED = "FAILED"
 STATUS_SKIP = "SKIP"          # user can type this to exclude a row
 
 
+# --------------------------------------------------------------------------- #
+# Generic runtime value containers (Phase 4)
+# --------------------------------------------------------------------------- #
 @dataclass
+class ParameterValue:
+    """One runtime input value — the generic replacement for an
+    airfoil-specific field like ``aoa_deg``.
+
+    ``parameter_id`` matches the parameter's ``name`` in the active
+    template (see :mod:`cfdauto.platform`); the runtime never needs a new
+    field to carry a new parameter (RPM, pressure, …), only a new entry.
+    """
+
+    parameter_id: str
+    value: float
+    source: str = "schedule"      # schedule | wbp | derived | override
+    status: str = "set"           # set | pending | invalid
+
+
+# Units for the four standard result metrics — a MetricValue carries its
+# own unit so display code never has to special-case which metric it is.
+_METRIC_UNITS = {"cl": "", "cd": "", "lift_n": "N", "drag_n": "N"}
+
+
+@dataclass
+class MetricValue:
+    """One computed runtime result — the generic replacement for an
+    airfoil-specific output field like ``cl``.
+
+    ``metric_id`` matches the metric's ``name`` in the active template.
+    """
+
+    metric_id: str
+    value: Optional[float] = None
+    unit: str = ""
+    status: str = "computed"      # computed | pending | failed
+
+
+# --------------------------------------------------------------------------- #
+# Experiment — inputs (parameters authoritative; legacy fields are accessors)
+# --------------------------------------------------------------------------- #
 class Experiment:
     """One row of the experiment schedule.
 
-    Attributes
-    ----------
-    row:
-        1-based Excel row number (used to write results back to the same row).
-    aoa_deg:
-        Angle of attack in degrees.
-    velocity:
-        Freestream / inlet velocity magnitude in m/s.
-    status:
-        Current value of the Status column ("" == pending).
-    extra_wb_params:
-        Any additional Workbench parameters coming from Excel columns named
-        ``WBP:<ParameterName>`` (e.g. ``WBP:P3`` or ``WBP:FlapAngle``).  This is
-        the extension point for future geometry variables — no code change
-        needed, just add a column.
+    Parameters are stored generically in ``self.parameters`` (a dict of
+    :class:`ParameterValue` keyed by parameter name). The ``aoa_deg`` /
+    ``velocity`` / ``extra_wb_params`` attributes are compatibility
+    accessors over that dict — the dict is the single source of truth.
+
+    Construction keeps its legacy signature
+    (``Experiment(row=, aoa_deg=, velocity=, status=, extra_wb_params=)``)
+    so every existing caller and test is unaffected; a ``parameters=``
+    keyword is also accepted for template-driven construction.
     """
 
-    row: int
-    aoa_deg: float
-    velocity: float
-    status: str = ""
-    extra_wb_params: Dict[str, float] = field(default_factory=dict)
+    def __init__(self, row: int, aoa_deg: Optional[float] = None,
+                 velocity: Optional[float] = None, status: str = "",
+                 extra_wb_params: Optional[Dict[str, float]] = None, *,
+                 parameters: Optional[Dict[str, "ParameterValue"]] = None,
+                 metadata: Optional[Dict[str, Any]] = None) -> None:
+        self.row = row
+        self.status = status
+        self.metadata: Dict[str, Any] = dict(metadata) if metadata else {}
+        self.parameters: Dict[str, ParameterValue] = {}
+        if parameters is not None:
+            for name, pv in parameters.items():
+                self.parameters[name] = (pv if isinstance(pv, ParameterValue)
+                                         else ParameterValue(name, float(pv)))
+        else:
+            if aoa_deg is not None:
+                self.parameters["aoa"] = ParameterValue("aoa", float(aoa_deg))
+            if velocity is not None:
+                self.parameters["velocity"] = ParameterValue("velocity",
+                                                             float(velocity))
+            for name, value in (extra_wb_params or {}).items():
+                self.parameters[name] = ParameterValue(name, float(value),
+                                                       source="wbp")
 
+    # -- legacy compatibility accessors (route to self.parameters) ------ #
+    @property
+    def aoa_deg(self) -> float:
+        return self.parameters["aoa"].value
+
+    @aoa_deg.setter
+    def aoa_deg(self, value: float) -> None:
+        self.parameters["aoa"] = ParameterValue("aoa", float(value))
+
+    @property
+    def velocity(self) -> float:
+        return self.parameters["velocity"].value
+
+    @velocity.setter
+    def velocity(self, value: float) -> None:
+        self.parameters["velocity"] = ParameterValue("velocity", float(value))
+
+    @property
+    def extra_wb_params(self) -> Dict[str, float]:
+        """The non-standard (WBP) parameters as a plain name→value dict."""
+        return {name: pv.value for name, pv in self.parameters.items()
+                if name not in ("aoa", "velocity")}
+
+    # -- generic accessors (Phase 4) ------------------------------------ #
+    def parameter(self, name: str) -> Optional[ParameterValue]:
+        """The :class:`ParameterValue` for ``name`` (None if absent)."""
+        return self.parameters.get(name)
+
+    def parameters_dict(self) -> Dict[str, float]:
+        """All input parameters as a plain name→value dict."""
+        return {name: pv.value for name, pv in self.parameters.items()}
+
+    # -- identity / validation (unchanged behavior) --------------------- #
     @property
     def case_id(self) -> str:
         """Filesystem-safe unique identifier, e.g. ``r05_aoa8.0_v30.0``."""
@@ -80,22 +179,111 @@ class Experiment:
         if not math.isfinite(self.velocity) or self.velocity <= 0:
             raise ValueError(f"Row {self.row}: velocity must be a positive number")
 
+    # -- serialization (byte-identical to the former vars(exp)) --------- #
+    def to_json_dict(self) -> Dict[str, Any]:
+        """The dict that used to be ``vars(exp)`` — same keys, same order."""
+        return {
+            "row": self.row,
+            "aoa_deg": self.aoa_deg,
+            "velocity": self.velocity,
+            "status": self.status,
+            "extra_wb_params": self.extra_wb_params,
+        }
 
-@dataclass
+    def __repr__(self) -> str:
+        return (f"Experiment(row={self.row}, aoa_deg={self.aoa_deg:g}, "
+                f"velocity={self.velocity:g}, status={self.status!r})")
+
+
+# --------------------------------------------------------------------------- #
+# CaseResult — outputs (metrics authoritative; legacy fields are accessors)
+# --------------------------------------------------------------------------- #
 class CaseResult:
-    """Everything extracted from one converged (or failed) Fluent run."""
+    """Everything extracted from one converged (or failed) Fluent run.
 
-    cl: Optional[float] = None
-    cd: Optional[float] = None
-    lift_n: Optional[float] = None
-    drag_n: Optional[float] = None
-    iterations: int = 0
-    converged: bool = False
-    error: str = ""
-    started: Optional[datetime] = None
-    finished: Optional[datetime] = None
-    mesh_file: str = ""
-    artifact_dir: str = ""
+    The physical result quantities (``cl``, ``cd``, ``lift_n``, ``drag_n``)
+    are stored generically in ``self.metrics`` (a dict of
+    :class:`MetricValue`); the same-named attributes are compatibility
+    accessors over that dict. Run bookkeeping (``iterations``,
+    ``converged``, ``error``, timestamps, paths) stays as plain attributes —
+    it is not a physical metric.
+    """
+
+    def __init__(self, cl: Optional[float] = None, cd: Optional[float] = None,
+                 lift_n: Optional[float] = None, drag_n: Optional[float] = None,
+                 iterations: int = 0, converged: bool = False, error: str = "",
+                 started: Optional[datetime] = None,
+                 finished: Optional[datetime] = None, mesh_file: str = "",
+                 artifact_dir: str = "", *,
+                 metrics: Optional[Dict[str, "MetricValue"]] = None) -> None:
+        self.metrics: Dict[str, MetricValue] = {}
+        if metrics is not None:
+            for name, mv in metrics.items():
+                self.metrics[name] = (mv if isinstance(mv, MetricValue)
+                                      else MetricValue(name, mv,
+                                                       _METRIC_UNITS.get(name, "")))
+        else:
+            # setters populate self.metrics (always present, value maybe None)
+            self.cl = cl
+            self.cd = cd
+            self.lift_n = lift_n
+            self.drag_n = drag_n
+        self.iterations = iterations
+        self.converged = converged
+        self.error = error
+        self.started = started
+        self.finished = finished
+        self.mesh_file = mesh_file
+        self.artifact_dir = artifact_dir
+
+    # -- legacy compatibility accessors (route to self.metrics) --------- #
+    def _metric_value(self, name: str) -> Optional[float]:
+        mv = self.metrics.get(name)
+        return mv.value if mv is not None else None
+
+    def _set_metric(self, name: str, value: Optional[float]) -> None:
+        self.metrics[name] = MetricValue(name, value, _METRIC_UNITS.get(name, ""))
+
+    @property
+    def cl(self) -> Optional[float]:
+        return self._metric_value("cl")
+
+    @cl.setter
+    def cl(self, value: Optional[float]) -> None:
+        self._set_metric("cl", value)
+
+    @property
+    def cd(self) -> Optional[float]:
+        return self._metric_value("cd")
+
+    @cd.setter
+    def cd(self, value: Optional[float]) -> None:
+        self._set_metric("cd", value)
+
+    @property
+    def lift_n(self) -> Optional[float]:
+        return self._metric_value("lift_n")
+
+    @lift_n.setter
+    def lift_n(self, value: Optional[float]) -> None:
+        self._set_metric("lift_n", value)
+
+    @property
+    def drag_n(self) -> Optional[float]:
+        return self._metric_value("drag_n")
+
+    @drag_n.setter
+    def drag_n(self, value: Optional[float]) -> None:
+        self._set_metric("drag_n", value)
+
+    # -- generic accessors (Phase 4) ------------------------------------ #
+    def metric(self, name: str) -> Optional[MetricValue]:
+        """The :class:`MetricValue` for ``name`` (None if absent)."""
+        return self.metrics.get(name)
+
+    def metrics_dict(self) -> Dict[str, Optional[float]]:
+        """All result metrics as a plain name→value dict."""
+        return {name: mv.value for name, mv in self.metrics.items()}
 
     # ------------------------------------------------------------------ #
     # Derived quantities.  Note: with a single set of reference values,
@@ -121,7 +309,16 @@ class CaseResult:
         return None
 
     def to_json_dict(self) -> Dict[str, Any]:
-        d = asdict(self)
+        """Byte-identical to the former ``asdict(self)`` + derived fields:
+        same keys, same order."""
+        d: Dict[str, Any] = {
+            "cl": self.cl, "cd": self.cd,
+            "lift_n": self.lift_n, "drag_n": self.drag_n,
+            "iterations": self.iterations, "converged": self.converged,
+            "error": self.error,
+            "started": self.started, "finished": self.finished,
+            "mesh_file": self.mesh_file, "artifact_dir": self.artifact_dir,
+        }
         d["cl_over_cd"] = self.cl_over_cd
         d["fl_over_fd"] = self.fl_over_fd
         d["duration_min"] = self.duration_min
@@ -129,3 +326,7 @@ class CaseResult:
             if d[key] is not None:
                 d[key] = d[key].isoformat(timespec="seconds")
         return d
+
+    def __repr__(self) -> str:
+        return (f"CaseResult(cl={self.cl}, cd={self.cd}, "
+                f"iterations={self.iterations}, converged={self.converged})")
