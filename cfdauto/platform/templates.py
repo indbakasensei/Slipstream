@@ -57,6 +57,11 @@ class SimulationTemplate:
         Which report/summary family results feed into.
     validation_profile:
         Which validation methodology applies (``docs/validation/``).
+    execution_strategy_id:
+        Phase 7 — the id of the ``ExecutionStrategy`` that runs this
+        template's studies (resolved by the runtime's execution registry).
+        A plain string so the platform layer stays free of any runtime/
+        execution import; the template *owns* its execution by naming it.
     """
 
     id: str
@@ -69,6 +74,7 @@ class SimulationTemplate:
     default_boundary_conditions: Dict[str, str] = field(default_factory=dict)
     report_type: str = "study-summary"
     validation_profile: str = ""
+    execution_strategy_id: str = ""
 
     # ------------------------------------------------------------------ #
     def parameter(self, name_or_id: str) -> Optional[ParameterDefinition]:
@@ -166,4 +172,5 @@ EXTERNAL_AERODYNAMICS = SimulationTemplate(
     },
     report_type="study-summary",
     validation_profile="benchmark-comparison",
+    execution_strategy_id="external-aerodynamics",
 )

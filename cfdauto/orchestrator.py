@@ -27,15 +27,30 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import traceback
 from pathlib import Path
-from typing import List, Optional, Protocol
+from typing import List, Optional
 
 from .config import Config
 from .error_formatting import format_error
 from .events import EventBus
 from .excel_manager import ExcelManager
 from .exceptions import CaseError, ExcelWriteError, FrameworkError
+# Phase 7: execution is owned by the template's ExecutionStrategy; the
+# adapter protocols now live in cfdauto.execution (one-way dependency).
+from .execution import (
+    ExecutionContext,
+    ExecutionResult,
+    MeshBackend,
+    SolverBackend,
+    strategy_for_template,
+)
+from .execution.result import (
+    STATUS_COMPLETED,
+    STATUS_NOTHING_TO_DO,
+    STATUS_STOPPED,
+)
 from .ledger import Ledger
 from .logging_setup import add_case_file_handler, remove_handler
 from .models import (
@@ -44,22 +59,11 @@ from .models import (
     CaseResult,
     Experiment,
 )
+from .platform import get_default_template
 from .state import RunState
 from .study_analytics import StudySummary, analyze_study
 
 log = logging.getLogger("cfdauto.orchestrator")
-
-
-# --------------------------------------------------------------------------- #
-# Controller contracts (structural typing — mocks and real classes both fit)
-# --------------------------------------------------------------------------- #
-class MeshBackend(Protocol):
-    def prepare_mesh(self, exp: Experiment, case_dir: Path) -> Path: ...
-
-
-class SolverBackend(Protocol):
-    def run_case(self, exp: Experiment, mesh_file: Optional[Path],
-                 case_dir: Path) -> CaseResult: ...
 
 
 def build_controllers(cfg: Config, bus: Optional[EventBus] = None
@@ -87,6 +91,17 @@ class Orchestrator:
         self.fluent = fluent
         self.bus = bus or EventBus()
         self.state = RunState(cfg.work_dir())
+
+        # Phase 7: execution is owned by the active template's strategy,
+        # resolved data-driven from the template (no `if template == ...`).
+        # Single-template runtime today → External Aerodynamics; the
+        # orchestrator's loop is identical regardless of which strategy this
+        # is. The ExecutionContext is (re)built per run() call, when the
+        # queued experiments are known.
+        self._template = get_default_template()
+        self._strategy = strategy_for_template(self._template)
+        self._exec_context: Optional[ExecutionContext] = None
+        self._execution_result: Optional[ExecutionResult] = None
 
         # v0.9-M3: SQLite ledger — dual-write beside Excel for provenance and
         # per-iteration telemetry storage. Never fatal — Excel remains the
@@ -146,6 +161,14 @@ class Orchestrator:
         exact lifecycle contract (None/partial/complete)."""
         return self._current_study_summary
 
+    @property
+    def execution_result(self) -> Optional[ExecutionResult]:
+        """Phase 7 — the standard :class:`ExecutionResult` for the most
+        recently completed run() call (None before the first run). Additive:
+        run() still returns its integer failure count; this exposes the
+        richer, transport-friendly outcome for future distributed execution."""
+        return self._execution_result
+
     # ------------------------------------------------------------------ #
     def run(self, max_cases: int = 0, retry_failed: bool = False,
             only_rows: Optional[set[int]] = None,
@@ -163,6 +186,8 @@ class Orchestrator:
         # Sprint 3: never let a retry count or summary leak between studies.
         self._retries_used = 0
         self._current_study_summary = None
+        self._execution_result = None
+        _t_start = time.monotonic()
 
         todo = self.excel.pending(retry_failed=retry_failed,
                                   rerun_stale_running=self.cfg.runtime.rerun_stale_running)
@@ -172,10 +197,21 @@ class Orchestrator:
             log.info("Nothing to do — every row is DONE or SKIP. "
                      "(Use --retry-failed to re-run FAILED rows.)")
             self._current_study_summary = self._finalize_study_summary([])
+            self._execution_result = ExecutionResult(
+                status=STATUS_NOTHING_TO_DO,
+                duration_s=round(time.monotonic() - _t_start, 3))
             self.bus.emit("batch.finished", ok=0, failed=0, stopped=False)
             return 0
         if max_cases > 0:
             todo = todo[:max_cases]
+
+        # Phase 7: build the execution context for this run (experiments now
+        # known). The per-case strategy operates within it.
+        self._exec_context = ExecutionContext(
+            config=self.cfg, template=self._template, state=self.state,
+            solver_backend=self.fluent, bus=self.bus, excel=self.excel,
+            work_dir=self.cfg.work_dir(), mesh_backend=self.wb,
+            experiments=list(todo))
 
         log.info("=== %d case(s) queued ===", len(todo))
         # v0.9-M3: register this batch in the ledger with a config hash.
@@ -224,15 +260,17 @@ class Orchestrator:
                               index=i, total=len(todo), aoa=exp.aoa_deg,
                               velocity=exp.velocity, extra=dict(exp.extra_wb_params))
                 ok = self._run_one(exp)
-                # _run_one recorded the error already; check the ledger to
-                # decide whether it was a Fluent-launch failure specifically.
-                launch_failed = (not ok) and self._last_error_was_fluent_launch(exp)
+                # _run_one recorded the error already; the strategy decides
+                # whether it was a recoverable launch/licence failure (a
+                # Fluent-specific concern owned by the strategy, not the loop).
+                launch_failed = (not ok) and self._strategy.is_launch_failure(
+                    exp, self._exec_context)
                 ran += 1
                 failures += 0 if ok else 1
                 if not ok and self.cfg.runtime.stop_on_failure:
                     log.error("stop_on_failure=true — aborting the batch.")
                     break
-                # Track consecutive Fluent-launch failures and halt on cascade.
+                # Track consecutive launch failures and halt on cascade.
                 if launch_failed:
                     consecutive_launch_failures += 1
                     if consecutive_launch_failures >= MAX_LAUNCH_FAILURES:
@@ -244,7 +282,7 @@ class Orchestrator:
                             "minutes for tokens to release, then re-run with "
                             "--retry-failed to resume.",
                             consecutive_launch_failures)
-                        _cleanup_orphaned_fluent()
+                        self._strategy.cleanup_after_cascade(self._exec_context)
                         stopped = True
                         break
                 elif ok:
@@ -273,6 +311,12 @@ class Orchestrator:
                 pass
         self.bus.emit("batch.finished", ok=done, failed=failures, stopped=stopped)
         self._current_study_summary = self._finalize_study_summary([e.row for e in todo])
+        self._execution_result = ExecutionResult(
+            status=STATUS_STOPPED if stopped else STATUS_COMPLETED,
+            completed_cases=done, failed_cases=failures,
+            duration_s=round(time.monotonic() - _t_start, 3),
+            artifacts=[str(self.state.cases_dir)],
+            logs=[str(self.cfg.work_dir() / "logs" / "cfdauto.log")])
         return failures
 
     # ------------------------------------------------------------------ #
@@ -378,33 +422,10 @@ class Orchestrator:
             log.debug("ledger.finish_case failed", exc_info=True)
 
     def _attempt(self, exp: Experiment, case_dir: Path) -> CaseResult:
-        """Mesh phase (with cache) + solver phase for a single attempt."""
-        mesh: Optional[Path] = None
-        if self.cfg.fluent.aoa_method == "geometry":
-            mesh = self._mesh_for(exp, case_dir)
-        else:
-            log.info("velocity_vector mode — skipping Workbench, flow will be "
-                     "rotated at the inlet instead.")
-        res = self.fluent.run_case(exp, mesh, case_dir)
-        return res
-
-    def _mesh_for(self, exp: Experiment, case_dir: Path) -> Path:
-        if self.cfg.runtime.reuse_mesh_per_geometry:
-            cached = self.state.cached_mesh(exp.geometry_key)
-            if cached:
-                log.info("Mesh cache hit for geometry '%s' → %s "
-                         "(Workbench skipped).", exp.geometry_key, cached.name)
-                self.bus.emit("stage", row=exp.row, case_id=exp.case_id,
-                              stage="mesh", state="cached")
-                self.bus.emit("mesh.ready", row=exp.row, case_id=exp.case_id,
-                              path=str(cached), cache_hit=True)
-                return cached
-        if self.wb is None:                               # defensive
-            raise FrameworkError("geometry mode requires a Workbench backend")
-        fresh = self.wb.prepare_mesh(exp, case_dir)
-        # Copy out of the WB project tree (WB overwrites it on the next case).
-        stored = self.state.store_mesh(exp.geometry_key, fresh, exp)
-        return stored
+        """One solve attempt — delegated to the active template's execution
+        strategy (Phase 7). The workflow (Workbench mesh + Fluent solve for
+        External Aerodynamics) lives in the strategy, not here."""
+        return self._strategy.execute_case(exp, self._exec_context, case_dir)
 
     # ------------------------------------------------------------------ #
     # Result recording — json first (authoritative), Excel second (ledger)
@@ -440,45 +461,6 @@ class Orchestrator:
         except ExcelWriteError:
             recovery = self.cfg.work_dir() / "recovery_results.csv"
             self.excel.dump_recovery_csv(recovery, exp, res, status)
-
-    def _last_error_was_fluent_launch(self, exp: Experiment) -> bool:
-        """Read the row's Error cell we just wrote — if it mentions Fluent
-        failing to launch, this was a licence/RPC issue, not a physics one."""
-        try:
-            row = self.excel.read_row_outputs(exp.row)
-            err = str(row.get("Error") or "").lower()
-            return ("fluent failed to launch" in err
-                    or "rpc" in err
-                    or "unavailable" in err
-                    or "connection refused" in err)
-        except Exception:
-            return False
-
-
-# --------------------------------------------------------------------------- #
-def _cleanup_orphaned_fluent() -> None:
-    """Kill any leftover Fluent/fl_mpi/cx processes on Windows.
-
-    Called after a launch-failure cascade so the next `--retry-failed` run
-    starts with a clean process table. Silent on non-Windows platforms.
-    """
-    import os
-    import subprocess
-    if os.name != "nt":
-        return
-    killed: list[str] = []
-    for name in ("fluent.exe", "fl_mpi.exe", "cx.exe", "cxhost.exe"):
-        try:
-            r = subprocess.run(["taskkill", "/F", "/IM", name],
-                               capture_output=True, text=True, timeout=15)
-            if r.returncode == 0:
-                killed.append(name)
-        except Exception:
-            pass
-    if killed:
-        log.info("Killed orphaned Fluent processes: %s", ", ".join(killed))
-    else:
-        log.info("No orphaned Fluent processes found.")
 
 
 # --------------------------------------------------------------------------- #

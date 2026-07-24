@@ -515,6 +515,11 @@ slipstream/
 │   │   ├── templates.py     #   SimulationTemplate + External Aerodynamics
 │   │   ├── internal_flow.py #   Internal Flow template (multi-template proof)
 │   │   └── registry.py      #   TemplateRegistry (see docs/PLATFORM_ARCHITECTURE.md)
+│   ├── execution/           # v2.0.0-dev: template-owned execution framework
+│   │   ├── strategy.py      #   ExecutionStrategy (per-case workflow + cascade hooks)
+│   │   ├── context.py, result.py, adapters.py, registry.py
+│   │   ├── external_aerodynamics.py  #   the existing workflow, moved verbatim
+│   │   └── internal_flow.py #   executable Internal Flow workflow (Capability 1)
 │   └── logging_setup.py     # per-case log files
 │
 ├── gui/                     # PySide6 desktop shell

@@ -123,4 +123,5 @@ INTERNAL_FLOW = SimulationTemplate(
     },
     report_type="study-summary",
     validation_profile="moody-chart",
+    execution_strategy_id="internal-flow",
 )

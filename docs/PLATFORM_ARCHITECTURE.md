@@ -1,17 +1,19 @@
 # Slipstream — Universal CFD Platform Architecture
 
-**Status: v2.0.0-dev, Phase 6 (multi-template proof — platform validated).**
-This document describes an architectural direction, the metadata layer that
-seeds it (Phase 1), the runtime's migration onto it (Phase 2), template-
-driven study definitions and input ordering (Phase 3A, §7), template-driven
-experiment generation/validation/defaults (Phase 3B, §8), the generic
-`Experiment`/`CaseResult` model (Phase 4, §9), the template-driven study I/O
-boundary (Phase 5, §10), and a **second, domain-different reference template
-— Internal Flow — added with zero core-runtime changes (Phase 6, §11)**.
-Phase 6 is the architecture's proof: two independent CFD templates coexist,
-External Aerodynamics remains the default (v1.0 behavior byte-for-byte
-unchanged), and adding the new domain touched no runtime code — only a data
-file and one registry registration.
+**Status: v2.0.0-dev, Capability 1 (executable Internal Flow workflow).**
+This document describes the architectural direction and every migration
+phase: the metadata layer (Phase 1), the runtime's migration onto it
+(Phase 2), template-driven study definitions/ordering (Phase 3A, §7),
+template-driven experiment generation (Phase 3B, §8), the generic
+`Experiment`/`CaseResult` model (Phase 4, §9), the study I/O boundary
+(Phase 5, §10), a second domain-different template (Phase 6, §11),
+template-owned execution — `ExecutionStrategy`/`ExecutionContext`/
+`ExecutionResult` (Phase 7, §12) — and the first *second* workflow to run
+end-to-end through that framework: **executable Internal Flow (Capability 1,
+§13)**. The orchestrator delegates the per-case workflow to the strategy the
+active template names, with no template branching. External Aerodynamics
+execution is byte-for-byte identical to v1.0 (verified via result-JSON diff,
+mesh-cache behavior, and the full regression suite).
 
 ---
 
@@ -182,30 +184,38 @@ Each phase is independently shippable and preserves behavior:
   second, domain-different reference template (§11) — internal pipe flow —
   purely as data, driven through the existing runtime. **No core-runtime
   changes.** Validates the whole architecture. ✅
-- **Phase 7 (future) — Template selection + dynamic editor + legacy
+- **Phase 7 (this sprint) — Template-aware execution framework.** Move the
+  per-case execution workflow out of the orchestrator into a template-owned
+  `ExecutionStrategy` (§12), dispatched data-driven; introduce
+  `ExecutionContext`/`ExecutionResult`. External Aerodynamics execution is
+  unchanged; Internal Flow gets a plug-in stub. **No template branching in
+  the runtime.** ✅
+- **Phase 8 (future) — Template selection + dynamic editor + legacy
   removal.** Per-project template resolution (replacing the single default),
   "New study from template," a parameter editor generated from
-  `StudyDefinition`, a solver setup for Internal Flow, generalizing the
+  `StudyDefinition`, a real Internal Flow solver strategy, generalizing the
   remaining airfoil conveniences (`case_id`/`geometry_key`/`ColumnMap`
   output columns), and (once no caller needs them) removal of the legacy
   `aoa_deg`/`velocity`/`cl`/`cd` accessors.
 
 Guardrail for every phase: *the External Aerodynamics path must produce
 byte-identical Excel rows, result-JSON, and analytics to today.* The
-regression suite (234 tests as of Phase 6) is the contract that guarantees it.
+regression suite (246 tests as of Phase 7) is the contract that guarantees it.
 
 ---
 
-## 5. What Phases 1–6 deliberately do **not** do
+## 5. What Phases 1–7 deliberately do **not** do
 
 No Alpha/Beta/Mach/RPM support wired in; no DOE; no heat transfer, cars,
 combustion, or multiphase templates; no plugins; no new GUI pages,
 template-selection dialog, or dynamic parameter editor; no solver
-implementation or Fluent automation for Internal Flow; no per-project
+implementation or Fluent automation for Internal Flow (its execution
+strategy is a stub); no distributed/remote execution; no per-project
 template selection (External Aerodynamics is still the single default); no
 analytics/result-extraction/Excel-*schema* changes; no removal of the
-legacy `aoa_deg`/`velocity`/`cl`/`cd` accessors. Phase 6 *added a second
-template as data* to validate the architecture — it changed no runtime code.
+legacy `aoa_deg`/`velocity`/`cl`/`cd` accessors. Phase 7 *relocated* the
+execution workflow into a template-owned strategy — it changed no execution
+behavior, no solver/mesher, and no controller.
 
 ---
 
@@ -689,3 +699,236 @@ here:
 - The remaining airfoil coupling is now sharply localized to three
   run-path conveniences (`case_id`, `geometry_key`, `ColumnMap` outputs),
   a precise and small Phase 7 target rather than a diffuse assumption.
+
+---
+
+## 12. Phase 7 — template-aware execution framework
+
+### 12.1 The final subsystem
+
+Execution was the last place the runtime implicitly assumed the External
+Aerodynamics workflow: `Orchestrator._attempt`/`_mesh_for` hardcoded
+"geometry mode → Workbench mesh (cached) → Fluent solve", and the batch
+loop's cascade detector hardcoded Fluent launch-failure detection and
+orphaned-process cleanup. Phase 7 moves that workflow into a **template-
+owned execution strategy**, leaving the orchestrator a generic loop.
+
+New package `cfdauto/execution/`:
+
+| Piece | Role |
+|---|---|
+| `ExecutionStrategy` (`strategy.py`) | the per-case workflow (`execute_case`) + two cascade hooks (`is_launch_failure`, `cleanup_after_cascade`) with benign defaults |
+| `ExecutionContext` (`context.py`) | everything a strategy needs: config, template, study, experiments, paths, state, adapters, bus, excel |
+| `ExecutionResult` (`result.py`) | standard batch outcome: status, completed/failed counts, duration, artifacts, logs |
+| `MeshBackend` / `SolverBackend` (`adapters.py`) | the adapter seams (relocated from `orchestrator.py`) |
+| `registry.py` | data-driven `strategy_id → strategy` dispatch |
+| `external_aerodynamics.py` | the existing workflow, moved verbatim |
+| `internal_flow.py` | a plug-in stub (no solver yet) |
+
+Dependency direction: `orchestrator` → `execution` → (`platform`,
+`models`, `state`, `excel_manager`, …); the platform layer imports none of
+it; `execution` never imports `orchestrator` (the adapter protocols moved so
+it doesn't need to).
+
+### 12.2 Template ownership, no branching
+
+`SimulationTemplate` gained one field — `execution_strategy_id` (a plain
+string, so the platform stays runtime-free). External Aerodynamics declares
+`"external-aerodynamics"`, Internal Flow `"internal-flow"`. The runtime
+resolves the strategy through the registry:
+
+```python
+strategy = strategy_for_template(template)   # get_execution_strategy(template.execution_strategy_id)
+result   = strategy.execute_case(exp, context, case_dir)
+```
+
+There is **no `if template == external_aero`** anywhere. The orchestrator
+holds one resolved strategy (`self._strategy`) and calls it per case; adding
+a workflow is one `register_strategy(...)` call.
+
+### 12.3 What moved, and what stayed
+
+**Moved into `ExternalAerodynamicsExecutionStrategy` (verbatim):**
+`_attempt` → `execute_case`; `_mesh_for` (mesh cache + Workbench +
+`mesh.ready`/`stage` events) → a private helper; `_last_error_was_fluent_launch`
+→ `is_launch_failure`; the module-level `_cleanup_orphaned_fluent` →
+`cleanup_after_cascade`.
+
+**Stayed in the orchestrator (the generic loop):** resume/`pending`,
+per-case retries, the ledger (study/batch/case/iteration), `stop_on_failure`,
+the cascade *counter/threshold/break* (it now calls the strategy's hooks for
+the Fluent-specific bits), result recording (`result.json`, Excel), and the
+Study Analytics summary. None of this changed.
+
+### 12.4 Backward compatibility (verified)
+
+- A full mock batch produces 8/8 DONE, **4 meshes for 8 rows** (the mesh
+  cache, now driven from the strategy, behaves identically), and a
+  **byte-identical `result.json`** (top-level keys + the `experiment`
+  sub-dict) versus the pre-Phase-7 reference.
+- The controllers (`fluent_controller.py`, `workbench_controller.py`,
+  `mocks.py`), `excel_manager.py`, `models.py`, `study_io.py`, and the GUI
+  (`gui/state.py`, `gui/event_bridge.py`) are **byte-unchanged**
+  (`git diff --quiet`).
+- `run()` still returns its integer failure count; `ExecutionResult` is
+  additive (exposed via `Orchestrator.execution_result`).
+- Full regression suite: **246 passed** (234 prior, unmodified + 12 new).
+
+### 12.5 Internal Flow strategy (plug-in proof)
+
+`InternalFlowExecutionStrategy` is registered and dispatchable exactly like
+External Aerodynamics; it inherits the base's benign cascade hooks. In
+Phase 7 its `execute_case` was a `NotImplementedError` stub — enough to prove
+the strategy *plugs in*. **Capability 1 (§13) makes it *run*** by filling in
+that one method; nothing else in the execution package moved.
+
+### 12.6 Remaining workflow assumptions
+
+- The **cascade message text** still says "Fluent launch failures" in the
+  orchestrator's loop (the counter/threshold is generic, the *phrasing* is
+  Fluent-flavored). Cosmetic; could read from the strategy later.
+- `ExecutionResult.artifacts`/`logs` carry representative paths (cases dir,
+  log file), sufficient for the current single-machine run; richer
+  artifact manifests are a distributed-execution concern (out of scope).
+- Everything noted in §9.5 / §10.5 / §11.5 (airfoil-named `case_id`/
+  `geometry_key`, `ColumnMap` output columns, per-project template
+  resolution) is unchanged and remains Phase 8 work.
+
+### 12.7 Performance impact
+
+Negligible. Per case, one extra method hop (`_attempt` → `strategy.execute_case`)
+and, per batch, one `ExecutionContext` construction and one `ExecutionResult`.
+No change in the 246-test suite runtime.
+
+---
+
+## 13. Capability 1 — executable Internal Flow workflow
+
+### 13.1 The goal: prove the framework, not build a solver
+
+Phase 7 proved a second workflow could *plug in*; Capability 1 proves a
+second workflow can *execute*. `InternalFlowExecutionStrategy.execute_case`
+is now functional: a pipe / duct internal-flow case runs end-to-end through
+the **same** execution framework as External Aerodynamics — the generic
+orchestration loop, the `MeshBackend` adapter, `ExecutionContext`,
+`CaseResult`, and the mesh cache — with **no core-runtime change**. The
+deliverable is architectural validation, not an industrial internal-flow
+setup.
+
+### 13.2 The per-case workflow
+
+```
+Internal Flow experiment
+        │
+        ▼
+InternalFlowExecutionStrategy.execute_case
+        │   1. mesh phase  ─► context.mesh_backend.prepare_mesh (+ RunState mesh cache)
+        │                      keyed on geometry only → meshed once per pipe,
+        │                      reused across the inlet-velocity sweep
+        │   2. solve phase ─► minimal analytical pipe flow:
+        │                        Re = ρVD/μ
+        │                        f  = 64/Re (laminar) | 0.3164·Re^-0.25 (Blasius)
+        │                        Δp = f·(L/D)·½ρV²          (Darcy–Weisbach)
+        ▼
+CaseResult(metrics = {pressure_drop, reynolds_number, friction_factor})
+```
+
+The metrics are filled by iterating **`context.template.supported_metrics`**
+and reading each metric's solved value + declared unit — the strategy never
+hardcodes which metrics a template has. The mesh phase is identical in shape
+to External Aerodynamics' (cache hit → `mesh.ready`/`stage` events → cached
+path; miss → `prepare_mesh` → `store_mesh`), so a velocity sweep meshes the
+pipe once. With no mesh backend the solve still runs (`mesh_file=""`) — the
+analytical solve needs no mesh.
+
+### 13.3 The solver seam is untouched
+
+The existing `SolverBackend` (the Fluent controller) computes airfoil CL/CD
+and cannot produce a pressure drop; modifying it would be a *runtime* change,
+which this sprint forbids. So the minimal solve stands in for the solver
+exactly as the sprint vision allows ("Fluent **or** minimal placeholder
+workflow"). The `SolverBackend` protocol is unchanged and ready: a real
+internal-flow Fluent adapter drops in behind it later with, again, only
+`internal_flow.py` changing.
+
+### 13.4 Bridging onto the (still airfoil-shaped) case identity
+
+`Experiment.case_id` / `geometry_key` / `validate` remain airfoil-shaped in
+the core — generalizing them is the documented Phase 8 "per-project" work,
+and this sprint must not redesign the core. Internal-flow rows therefore
+bridge onto that identity in exactly **one isolated place**,
+`build_internal_flow_experiment`, with a deliberate (not incidental) mapping:
+
+| Internal-flow input | Rides in | Why |
+|---|---|---|
+| `inlet_velocity` | canonical `velocity` slot | the flow variable a mesh is reused across |
+| `pipe_diameter` (P1), `pipe_length` (P2) | `extra_wb_params` | genuine Workbench geometry parameters → mesh-cache key |
+| `fluid_density`, `fluid_viscosity` | `Experiment.metadata` | fluid properties, kept out of the geometry key |
+| *(incidence)* | `aoa` pinned to `0.0` | internal flow has none; `case_id` still needs the field |
+
+`internal_flow_inputs(exp)` reads them back into a clean name→value dict, so
+the physics never touches an airfoil-named field. Because the mapping keeps
+`velocity > 0` and `aoa` finite, a bridged experiment even passes the
+existing `Experiment.validate()` unchanged.
+
+### 13.5 Which seams already generalize — and which don't (yet)
+
+Capability 1 is a sharp probe of exactly how far the platform's generality
+reaches today:
+
+- **Already generic (used unchanged):** the platform metadata + template
+  registry, `StudyDefinition`/`ExperimentDefinition` (built the Internal Flow
+  study's 8 example rows), `ExecutionStrategy`/`ExecutionContext`, the
+  `MeshBackend` adapter + `RunState` mesh cache, and `CaseResult.metrics` /
+  `metrics_dict()` (carried the internal-flow metrics with no airfoil
+  contamination — `res.cl`/`res.cd` are simply `None`).
+- **Still hardwired to External Aerodynamics (Phase 8):** `ExcelManager`
+  builds `StudyIO.default(...)` (its required-column check expects
+  `AOA_deg`/`Velocity_m_s`), `Orchestrator` resolves `get_default_template()`,
+  and `CaseResult.to_json_dict()` / the Excel output columns are the four
+  airfoil metrics. **These are exactly the "per-project template selection"
+  items already scheduled for Phase 8** — Capability 1 did not touch them,
+  and executes Internal Flow *around* them (build → strategy → `result.json`)
+  rather than redesigning them.
+
+### 13.6 Backward compatibility (verified)
+
+- The full regression suite passes: **255 passed** (246 prior — one Phase 7
+  stub-assertion test updated in place, since the strategy is no longer a
+  stub — plus 9 new Internal Flow tests).
+- External Aerodynamics is untouched: its strategy, the orchestrator, the
+  adapters, the context/result objects, `models.py`, `state.py`,
+  `study_io.py`, `excel_manager.py`, and the platform templates are all
+  unchanged by this sprint. The only engine file Capability 1 modified is
+  `cfdauto/execution/internal_flow.py` (plus a one-line export in
+  `execution/__init__.py`).
+
+### 13.7 Architecture audit (this sprint)
+
+Nearly all of the change is **Workflow**, as intended:
+
+| File | Classification | Change |
+|---|---|---|
+| `cfdauto/execution/internal_flow.py` | **Workflow** | stub → executable strategy + `build_internal_flow_experiment` / `internal_flow_inputs` / `solve_internal_flow` |
+| `cfdauto/execution/__init__.py` | Execution | export the three workflow helpers |
+| `tests/test_internal_flow_execution.py` | Test | new — physics, bridge, execution, mesh reuse, end-to-end |
+| `tests/test_execution_framework.py` | Test | update the (now obsolete) stub-assertion test |
+| `docs/PLATFORM_ARCHITECTURE.md`, `README.md` | Documentation | this section + the architecture tree |
+
+No **Platform**, **Runtime**, or execution-**framework** file was modified.
+
+### 13.8 Lessons learned
+
+- The Phase 4 decision to make `CaseResult` store metrics generically is what
+  let an internal-flow result travel through the shared model with zero
+  contamination — the strategy fills the template's metrics and the airfoil
+  accessors just report `None`.
+- Filling metrics by iterating `template.supported_metrics` (rather than
+  naming `pressure_drop` etc. in the strategy) means a third template's
+  metrics would flow through the *same* strategy code shape — the pattern
+  generalizes past internal flow.
+- The remaining airfoil coupling is now empirically pinned to three seams
+  (`ExcelManager`'s default `StudyIO`, `Orchestrator`'s default template,
+  `CaseResult.to_json_dict`/Excel output columns). Executing Internal Flow
+  *around* them made the Phase 8 scope concrete: it is precisely
+  per-project template selection, nothing more.
