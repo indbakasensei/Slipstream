@@ -525,7 +525,8 @@ slipstream/
 ├── gui/                     # PySide6 desktop shell
 │   ├── app.py, main_window.py
 │   ├── theme.py
-│   ├── state.py             # AppState (dataset, config, running flag)
+│   ├── state.py             # AppState (dataset, config, running flag, template metadata)
+│   ├── param_render.py      # v2.0.0-dev: metadata → widget pipeline (Dynamic Template UI)
 │   ├── event_bridge.py      # bus → Qt signals bridge
 │   ├── project_selector_dialog.py  # v1.0.0-alpha.5: Open Recent/Existing/Create New
 │   ├── panels/

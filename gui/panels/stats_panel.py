@@ -55,6 +55,18 @@ class StatsPanel(QWidget):
             b = done.loc[i]
             self.best.setText(
                 f'Best L/D = {b["L/D"]:.2f}  →  {b["CaseID"]}   '
-                f'(AOA {b["AOA"]:g}°, V {b["Velocity"]:g} m/s)')
+                f'({self._input_summary(b)})')
         else:
             self.best.setText("Best L/D: – (no completed cases yet)")
+
+    def _input_summary(self, rec) -> str:
+        """A parenthetical of the winning case's inputs, labelled + unit'd from
+        template metadata (no hardcoded AOA/Velocity)."""
+        parts = []
+        for sp in self.state.input_parameters():
+            v = rec.get(sp.display_name)
+            if v is None:
+                continue
+            unit = f" {sp.unit}" if sp.unit else ""
+            parts.append(f"{sp.display_name} {float(v):g}{unit}")
+        return ", ".join(parts)

@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QHBoxLayout,
                                QSpinBox, QTableWidget, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
-from gui import theme
+from gui import param_render, theme
 from gui.state import AppState
 from gui.widgets import SectionHeader
 
@@ -98,28 +98,19 @@ class QueuePanel(QWidget):
     def refresh(self) -> None:
         df = self.state.df
         cols = self.columns()
+        # Which columns are dynamic study inputs (display-name keyed in the
+        # dataset) vs. free Workbench params — both render as plain numbers.
+        input_labels = self.state.experiment_definition.input_columns()
+        numeric_input_cols = set(input_labels) | set(self.state.wbp_names)
         self.table.setSortingEnabled(False)
         self.table.setRowCount(len(df))
         self.table.setColumnCount(len(cols))
         self.table.setHorizontalHeaderLabels(cols)
+        self._apply_header_metadata(cols)
         for r, (_, row) in enumerate(df.iterrows()):
-            vals = {
-                "Row": (str(int(row["Row"])), row["Row"]),
-                "AOA": (f'{row["AOA"]:g}', row["AOA"]),
-                "Velocity": (f'{row["Velocity"]:g}', row["Velocity"]),
-                "Status": (str(row["Status"]), None),
-                "CL": (_fmt(row["CL"], "{:.4f}"), row["CL"]),
-                "CD": (_fmt(row["CD"], "{:.5f}"), row["CD"]),
-                "L/D": (_fmt(row["L/D"], "{:.2f}"), row["L/D"]),
-                "It": (_fmt(row["Iterations"], "{:.0f}"), row["Iterations"]),
-                "Conv": (str(row["Converged"] or ""), None),
-            }
-            for name in self.state.wbp_names:
-                v = row.get(name)
-                vals[name] = (_fmt(v, "{:g}"), v)
             for c, name in enumerate(cols):
-                text, sv = vals[name]
-                it = _item(text, sv if sv is not None else None)
+                text, sv = self._cell_value(row, name, numeric_input_cols)
+                it = _item(text, sv)
                 if name == "Status":
                     col = theme.qcolor(text)
                     it.setForeground(col)
@@ -133,6 +124,37 @@ class QueuePanel(QWidget):
         hdr = self.table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
         hdr.setStretchLastSection(True)
+
+    # ------------------------------------------------------------------ #
+    def _cell_value(self, row, name: str, numeric_input_cols: Set[str]):
+        """(display text, sort value) for one queue cell — driven by which
+        column this is, with dynamic study-input columns handled generically
+        (no parameter names hardcoded)."""
+        if name == "Row":
+            return str(int(row["Row"])), row["Row"]
+        if name in numeric_input_cols:
+            v = row.get(name)
+            return _fmt(v, "{:g}"), v
+        if name == "Status":
+            return str(row["Status"]), None
+        if name == "It":
+            return _fmt(row["Iterations"], "{:.0f}"), row["Iterations"]
+        if name == "Conv":
+            return str(row["Converged"] or ""), None
+        fmt = {"CL": "{:.4f}", "CD": "{:.5f}", "L/D": "{:.2f}"}.get(name, "{:g}")
+        v = row.get(name)
+        return _fmt(v, fmt), v
+
+    def _apply_header_metadata(self, cols) -> None:
+        """Attach each study-input column header a metadata tooltip (label,
+        unit, default, range) so the queue surfaces units/limits on hover —
+        External Aero and any other template alike."""
+        by_label = {p.display_name: p for p in self.state.input_parameters()}
+        for c, name in enumerate(cols):
+            sp = by_label.get(name)
+            item = self.table.horizontalHeaderItem(c)
+            if sp is not None and item is not None:
+                item.setToolTip(param_render.tooltip_for(sp.parameter))
 
     # ------------------------------------------------------------------ #
     def selected_rows(self) -> Set[int]:

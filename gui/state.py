@@ -176,11 +176,55 @@ class AppState(QObject):
         self._editable().update_input(row, field, value)
         self.reload_dataset()
 
-    def add_experiment(self, aoa: float, velocity: float,
+    def update_inputs(self, row: int, values: Dict[str, float]) -> None:
+        """Write several input cells of a row in one shot (keyed by parameter
+        *name*). Reloads once, not per field."""
+        excel = self._editable()
+        for name, value in values.items():
+            excel.update_input(row, name, value)
+        self.reload_dataset()
+
+    def add_experiment(self, values: Dict[str, float],
                        extra: Optional[Dict[str, float]] = None) -> int:
+        """Append a new schedule row from a metadata-driven name→value mapping.
+
+        This is the single UI→runtime *write* bridge: ``ExcelManager.append_
+        experiment`` is still airfoil-shaped ``(aoa, velocity, extra)`` (its
+        generalization is the documented Phase 8 per-project work), so the
+        first two study inputs are mapped onto it positionally — no parameter
+        name is hardcoded here, the order comes from the template's
+        StudyDefinition. When ExcelManager becomes template-driven this
+        collapses to a plain pass-through.
+        """
+        primary = [p.name for p in self.input_parameters()
+                   if p.name not in self.wbp_names]
+        aoa = float(values[primary[0]])
+        velocity = float(values[primary[1]]) if len(primary) > 1 else 0.0
         r = self._editable().append_experiment(aoa, velocity, extra)
         self.reload_dataset()
         return r
+
+    # ------------------------------------------------------------------ #
+    # Template metadata accessors (panels render from these, never literals)
+    # ------------------------------------------------------------------ #
+    def input_parameters(self):
+        """The active study's input parameters, in display order
+        (:class:`~cfdauto.platform.study_definition.StudyParameter`)."""
+        return self.experiment_definition.study.ordered()
+
+    def primary_input(self):
+        """The study's first input parameter (the natural x-axis / range
+        headline). None if the study declares no inputs."""
+        params = self.input_parameters()
+        return params[0] if params else None
+
+    def secondary_input(self):
+        """The study's second input parameter (the natural colour/grouping
+        variable). Falls back to the primary when only one input exists."""
+        params = self.input_parameters()
+        if not params:
+            return None
+        return params[1] if len(params) > 1 else params[0]
 
     def toggle_skip(self, row: int) -> None:
         cur = str(self.df.loc[self.df["Row"] == row, "Status"].iloc[0])

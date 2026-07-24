@@ -100,11 +100,14 @@ class DashboardPanel(QWidget):
         pipeline_widget = QWidget(); pipeline_widget.setLayout(pipeline_section)
 
         # -- chart (the largest section on the page) ------------------------
-        self.chart = pg.PlotWidget(title="L/D vs AOA (by velocity)")
+        # Axes are labelled from the active study's input metadata — no
+        # hardcoded AOA/Velocity — so the dashboard chart reads correctly for
+        # any template (identical to before for External Aerodynamics).
+        self.chart = pg.PlotWidget()
         self.chart.showGrid(x=True, y=True, alpha=0.25)
         self.chart.addLegend(offset=(-10, 10))
-        self.chart.setLabel("bottom", "AOA [deg]")
         self.chart.setLabel("left", "L/D")
+        self._apply_chart_axes()
         self.chart.setMinimumHeight(360)
         self.chart.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         chart_section = QVBoxLayout()
@@ -171,7 +174,23 @@ class DashboardPanel(QWidget):
         self.subtitle.setText(
             f"{st.config_path}   ·   AOA method: {mode}   ·   "
             f"schedule: {st.cfg.excel.file}")
+        self._apply_chart_axes()
         self.refresh()
+
+    def _axis_inputs(self):
+        """(primary, secondary) study-input display labels for the chart, from
+        template metadata (defaults to sensible strings if none declared)."""
+        prim = self.state.primary_input()
+        sec = self.state.secondary_input()
+        px = prim.display_name if prim is not None else "X"
+        sx = sec.display_name if sec is not None else px
+        unit = f" [{prim.unit}]" if prim is not None and prim.unit else ""
+        return px, sx, f"{px}{unit}"
+
+    def _apply_chart_axes(self) -> None:
+        px, sx, px_label = self._axis_inputs()
+        self.chart.setTitle(f"L/D vs {px} (by {sx})")
+        self.chart.setLabel("bottom", px_label)
 
     def refresh(self) -> None:
         df = self.state.df
@@ -187,8 +206,9 @@ class DashboardPanel(QWidget):
     def _redraw_chart(self) -> None:
         for item in list(self.chart.listDataItems()):
             self.chart.removeItem(item)
+        px, sx, _ = self._axis_inputs()
         for i, (label, xs, ys, _ids) in enumerate(
-                series_groups(self.state.df, "AOA", "L/D", "Velocity")):
+                series_groups(self.state.df, px, "L/D", sx)):
             col = theme.CHART_SERIES[i % len(theme.CHART_SERIES)]
             self.chart.plot(xs, ys, pen=pg.mkPen(col, width=1.6), symbol="o",
                             symbolSize=6, symbolBrush=col, symbolPen=None,

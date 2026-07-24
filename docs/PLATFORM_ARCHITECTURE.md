@@ -1,6 +1,6 @@
 # Slipstream — Universal CFD Platform Architecture
 
-**Status: v2.0.0-dev, Capability 1 (executable Internal Flow workflow).**
+**Status: v2.0.0-dev, Capability 2 (dynamic template-driven UI).**
 This document describes the architectural direction and every migration
 phase: the metadata layer (Phase 1), the runtime's migration onto it
 (Phase 2), template-driven study definitions/ordering (Phase 3A, §7),
@@ -8,12 +8,14 @@ template-driven experiment generation (Phase 3B, §8), the generic
 `Experiment`/`CaseResult` model (Phase 4, §9), the study I/O boundary
 (Phase 5, §10), a second domain-different template (Phase 6, §11),
 template-owned execution — `ExecutionStrategy`/`ExecutionContext`/
-`ExecutionResult` (Phase 7, §12) — and the first *second* workflow to run
-end-to-end through that framework: **executable Internal Flow (Capability 1,
-§13)**. The orchestrator delegates the per-case workflow to the strategy the
-active template names, with no template branching. External Aerodynamics
-execution is byte-for-byte identical to v1.0 (verified via result-JSON diff,
-mesh-cache behavior, and the full regression suite).
+`ExecutionResult` (Phase 7, §12), the first *second* workflow to run
+end-to-end through that framework — executable Internal Flow (Capability 1,
+§13) — and the desktop UI becoming a **renderer of template metadata**
+(Capability 2, §14). The orchestrator delegates the per-case workflow to the
+strategy the active template names, with no template branching. External
+Aerodynamics execution *and its UI* are unchanged (verified via result-JSON
+diff, mesh-cache behavior, the GUI smoke test, and the full regression
+suite).
 
 ---
 
@@ -932,3 +934,113 @@ No **Platform**, **Runtime**, or execution-**framework** file was modified.
   `CaseResult.to_json_dict`/Excel output columns). Executing Internal Flow
   *around* them made the Phase 8 scope concrete: it is precisely
   per-project template selection, nothing more.
+
+---
+
+## 14. Capability 2 — dynamic template-driven UI
+
+### 14.1 The UI becomes a renderer of metadata
+
+The desktop panels used to *assume* External Aerodynamics: hardcoded AOA /
+Velocity spin boxes, a queue that indexed `row["AOA"]`, chart presets naming
+`"AOA"`/`"Velocity"`, and overview/stats rows labelled "AOA Range". Capability
+2 turns the UI into a **renderer of platform metadata**: every parameter
+control, queue column, validation message, unit, tooltip, and default is
+generated from the active template's `StudyDefinition` / `ParameterDefinition`.
+The UI holds **no parameter names** — swap the template and the same widgets
+redraw for Internal Flow (or any future template) with zero UI code.
+
+### 14.2 The rendering pipeline
+
+```
+SimulationTemplate ─► StudyDefinition ─► StudyParameter ─► ParameterDefinition
+                                                              │
+                                              gui/param_render.py (the pipeline)
+                                                              │
+        ┌──────────────┬──────────────┬───────────────┬──────┴───────┬─────────────┐
+        ▼              ▼              ▼               ▼              ▼             ▼
+   label_for      make_spin      tooltip_for     range_text     decimals_for   validate_*
+  "AOA [deg]"   range+default    desc·unit·      "≥ 0.01 m/s"   step→dp (≥2)   reuse pdef
+                 +step+tooltip    default·range                                  limits
+        │              │              │               │              │             │
+        └──────────────┴──────────────┴───────────────┴──────────────┴─────────────┘
+                                        │  consumed by every panel:
+        ParamsPanel (form)   QueuePanel (columns+header tooltips)   ChartsPanel (X/colour selectors)
+        DashboardPanel (chart axes)   StatsPanel (best-case line)   StudyOverviewTable (range rows)
+```
+
+`gui/param_render.py` is the single seam. It is pure (functions of the
+metadata plus thin Qt widget factories) and therefore unit-testable without a
+running window. Panels ask `AppState` for the ordered inputs
+(`input_parameters()`, `primary_input()`, `secondary_input()`) and render each
+through `param_render` — they never name a parameter.
+
+### 14.3 What each objective became
+
+| Objective | Where | How |
+|---|---|---|
+| Parameter forms | `ParamsPanel` | one `make_spin` per `study.ordered()` parameter; `_sel_rows`/`_add_rows` keyed by name |
+| Queue columns | `QueuePanel` | columns from `input_columns()`; generic `_cell_value`; per-input header tooltips |
+| Validation | `param_render.validate_row` → `ExperimentDefinition.validate_row` | reuses the ParameterDefinition limits — no second copy |
+| Units | everywhere | `label_for` (form) + `tooltip_for` "Unit: …" (queue headers, spin tooltips) |
+| Tooltips | `tooltip_for` | description · unit · default · range |
+| Defaults | `make_spin(pdef)` | the "Add experiment" form seeds each spin from `default_value` |
+| Chart selectors | `ChartsPanel`, `DashboardPanel` | X / colour / preset axes from `input_columns()` / `primary_input()` — no literal names |
+
+### 14.4 Example — External Aerodynamics (unchanged)
+
+`study.ordered()` = (AOA, Velocity), so the form renders exactly as before:
+`AOA [deg]` (range −90…90, 2 dp, default 0.0) and `Velocity [m/s]` (≥ 0.01,
+2 dp, default 20.0, the unbounded side capped at 5000 for editing). The queue
+shows `Row | AOA | Velocity | Status | CL | CD | L/D | It | Conv`; the
+dashboard chart is still "L/D vs AOA (by Velocity)". Pixel-for-pixel the same
+UI — now produced from metadata instead of literals.
+
+### 14.5 Example — Internal Flow (automatic)
+
+The *same* code, given the Internal Flow template, renders a five-row form —
+`Inlet Velocity [m/s]`, `Fluid Density [kg/m3]`, `Fluid Viscosity [Pa.s]`
+(6 dp, because its default is 1.002e-3), `Pipe Diameter [m]` (0.001…10),
+`Pipe Length [m]` — with each spin's range/default/tooltip from metadata. The
+queue columns become `Row | Inlet Velocity | Fluid Density | Fluid Viscosity |
+Pipe Diameter | Pipe Length | Status | …`, each header carrying its unit on
+hover; the chart's X/colour selectors list the same inputs; the overview grows
+a range row per input. No UI code was added for this template — only its
+metadata file (§11) and strategy (§13) exist.
+
+### 14.6 Remaining hardcoded UI assumptions
+
+Three references to `aoa`/`velocity` survive in the GUI, all *outside* the
+metadata-rendering surface and all tied to still-airfoil-bound runtime seams
+(explicitly out of this sprint's "no runtime changes" scope):
+
+- **`AppState.add_experiment`** bridges the metadata form onto
+  `ExcelManager.append_experiment(aoa, velocity, extra)` — the airfoil-shaped
+  *write* API. It maps the study's first two inputs positionally (no name
+  hardcoded); it collapses to a pass-through when ExcelManager becomes
+  template-driven (Phase 8).
+- **`MonitorPanel`** shows the live case's inputs from the engine's
+  `case.started` *event payload* (still `aoa`/`velocity` keys). Read
+  defensively now; generalizes with the event schema (Phase 8 / runtime).
+- **`DashboardPanel` subtitle** prints `fluent.aoa_method` — an aero *config*
+  field, not a parameter selector.
+
+The **output/metric** columns (CL, CD, L/D, …) remain fixed too: they mirror
+what the airfoil-bound `ExcelManager.read_row_outputs` actually provides.
+Generalizing metric rendering waits on the same Phase 8 runtime work; this
+sprint's scope was the *input parameter* surface, which is now fully
+metadata-driven.
+
+### 14.7 Performance impact
+
+None measurable. Rendering does a handful of extra metadata lookups at widget
+build / refresh time (already O(rows × columns)); no new per-frame work, no
+new I/O. The GUI smoke test's runtime is unchanged.
+
+### 14.8 The engineering rule, now true
+
+Adding a template requires **1 metadata file + 1 execution strategy + 0 UI
+code**. Internal Flow proves it end-to-end: its form, queue, validation,
+units, tooltips, defaults, and chart selectors all exist with no panel change —
+only `platform/internal_flow.py` and `execution/internal_flow.py` were ever
+written for it.

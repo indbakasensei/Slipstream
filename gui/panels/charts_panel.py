@@ -59,9 +59,16 @@ class ChartsPanel(QWidget):
         self.c_box = QComboBox()
         bar.addWidget(self.c_box)
         bar.addSpacing(10)
-        for label, preset in (("CL vs AOA", ("AOA", "CL", "Velocity")),
-                              ("Drag polar", ("CD", "CL", "AOA")),
-                              ("L/D vs V", ("Velocity", "L/D", "AOA"))):
+        # Preset buttons reference the study's own input columns (from
+        # metadata) — never literal parameter names — so they read naturally
+        # for whatever template is loaded (AOA/Velocity for External Aero).
+        prim = state.primary_input()
+        sec = state.secondary_input()
+        px = prim.display_name if prim is not None else "X"
+        sx = sec.display_name if sec is not None else px
+        for label, preset in ((f"CL vs {px}", (px, "CL", sx)),
+                              ("Drag polar", ("CD", "CL", px)),
+                              (f"L/D vs {sx}", (sx, "L/D", px))):
             b = QPushButton(label)
             b.clicked.connect(lambda _, p=preset: self._preset(*p))
             bar.addWidget(b)

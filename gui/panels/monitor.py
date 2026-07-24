@@ -167,8 +167,18 @@ class MonitorPanel(QWidget):
         extra = "  ".join(f"{k}={v:g}" for k, v in d.get("extra", {}).items())
         self.case_lbl.setText(
             f'Case {d["index"]}/{d["total"]} — {d["case_id"]}')
-        self.info_lbl.setText(
-            f'AOA {d["aoa"]:g}°   V {d["velocity"]:g} m/s   {extra}')
+        # The live case readout mirrors the engine's case.started payload
+        # (still the aero aoa/velocity schema — a runtime concern out of this
+        # sprint's scope). Read defensively so a future generic payload can't
+        # crash the panel.
+        bits = []
+        if d.get("aoa") is not None:
+            bits.append(f'AOA {d["aoa"]:g}°')
+        if d.get("velocity") is not None:
+            bits.append(f'V {d["velocity"]:g} m/s')
+        if extra:
+            bits.append(extra)
+        self.info_lbl.setText("   ".join(bits))
         self.pipeline.reset()
         self.bar.setValue(0)
         self._its.clear(); self._cl.clear(); self._cd.clear()

@@ -1,8 +1,12 @@
 """StudyOverviewTable — GUI Modernization (v1.0.0-rc2): a dashboard section
-showing Project / AOA range / Velocity range / case counts / average
-CL·CD·L-D / execution time / status, computed directly from
+showing Project / one input-range row *per study parameter* / case counts /
+average CL·CD·L-D / execution time / status, computed directly from
 ``AppState.df`` — exactly the way ``StatsPanel`` already computes its own
 mean/std/min/max today. No ``cfdauto`` import, no new backend logic.
+
+Dynamic Template UI (Capability 2): the per-input range rows are generated
+from the active template's input metadata (label + unit) rather than a
+hardcoded AOA/Velocity pair, so the overview adapts to any template.
 
 This is intentionally a *separate* widget from the existing
 ``StudySummaryPanel`` (``Orchestrator.current_study_summary`` — total/
@@ -23,9 +27,11 @@ from gui import theme
 from gui.state import AppState
 from gui.widgets.section_header import SectionHeader
 
-_FIELDS = ["Project", "AOA Range", "Velocity Range", "Cases", "Completed",
-          "Failed", "Average CL", "Average CD", "Average L/D",
-          "Execution Time", "Status"]
+# The per-input range rows are inserted between the head and tail at refresh
+# time (one "<Input> Range" row per study parameter, from metadata).
+_HEAD = ["Project"]
+_TAIL = ["Cases", "Completed", "Failed", "Average CL", "Average CD",
+         "Average L/D", "Execution Time", "Status"]
 
 
 class StudyOverviewTable(QWidget):
@@ -41,7 +47,7 @@ class StudyOverviewTable(QWidget):
         card_lay.setSpacing(theme.SPACE_SM)
         card_lay.addWidget(SectionHeader("Study Overview", icon="📋"))
 
-        self.table = QTableWidget(len(_FIELDS), 2)
+        self.table = QTableWidget(len(self._fields()), 2)
         self.table.horizontalHeader().setVisible(False)
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -60,9 +66,18 @@ class StudyOverviewTable(QWidget):
         self.refresh()
 
     # ------------------------------------------------------------------ #
+    def _fields(self) -> list:
+        """All row labels: Project, one range row per study input (from
+        metadata), then the fixed count/average/status rows."""
+        ranges = [f"{sp.display_name} Range"
+                  for sp in self.state.input_parameters()]
+        return _HEAD + ranges + _TAIL
+
     def refresh(self) -> None:
+        fields = self._fields()
         values = self._compute_values()
-        for r, field in enumerate(_FIELDS):
+        self.table.setRowCount(len(fields))
+        for r, field in enumerate(fields):
             self.table.setItem(r, 0, QTableWidgetItem(field))
             self.table.setItem(r, 1, QTableWidgetItem(str(values.get(field, "–"))))
         self.table.resizeRowsToContents()
@@ -72,17 +87,21 @@ class StudyOverviewTable(QWidget):
         values = {"Project": self.state.config_path.stem
                  if self.state.config_path else "–"}
         if not len(df):
-            for f in _FIELDS[1:]:
+            for f in self._fields()[1:]:
                 values[f] = "–"
             values["Status"] = "No project loaded"
             return values
 
-        aoa = pd.to_numeric(df["AOA"], errors="coerce").dropna()
-        vel = pd.to_numeric(df["Velocity"], errors="coerce").dropna()
-        values["AOA Range"] = (f"{aoa.min():g}° to {aoa.max():g}°"
-                               if len(aoa) else "–")
-        values["Velocity Range"] = (f"{vel.min():g} to {vel.max():g} m/s"
-                                    if len(vel) else "–")
+        # One range row per study input parameter, labelled + unit'd from
+        # metadata (no hardcoded parameter names).
+        for sp in self.state.input_parameters():
+            col = sp.display_name
+            series = (pd.to_numeric(df[col], errors="coerce").dropna()
+                      if col in df else pd.Series(dtype=float))
+            unit = f" {sp.unit}" if sp.unit else ""
+            values[f"{col} Range"] = (
+                f"{series.min():g} to {series.max():g}{unit}"
+                if len(series) else "–")
 
         counts = df["Status"].value_counts()
         total = len(df)
