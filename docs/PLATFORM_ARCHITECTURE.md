@@ -1,6 +1,6 @@
 # Slipstream — Universal CFD Platform Architecture
 
-**Status: v2.0.0-dev, Capability 3 (project template selection + UX foundation).**
+**Status: v2.0.0-dev, UX Milestone 1 (Slipstream Neo UI).**
 This document describes the architectural direction and every migration
 phase: the metadata layer (Phase 1), the runtime's migration onto it
 (Phase 2), template-driven study definitions/ordering (Phase 3A, §7),
@@ -1175,3 +1175,40 @@ None measurable. Template resolution is a single registry dict lookup at
 project-load / orchestrator-construction time; the UX foundation changes are
 static layout wiring. No new per-frame work, no new I/O. Full suite runtime
 unchanged.
+
+---
+
+## 16. UX Milestone 1 — Slipstream Neo UI (presentation only)
+
+With the platform architecturally complete (template/execution/metadata/project
+aware), the remaining weakness was user experience. Neo redesigns **how**
+Slipstream is presented — a modern, professional engineering interface — while
+the architecture, execution, runtime, `AppState`, controllers, signals/slots,
+and workflows stay **frozen**. Every public widget attribute the app and tests
+depend on is preserved; only presentation changed.
+
+The design language (tokens, palette, typography, components, layout
+philosophy) lives in **[`docs/UI_DESIGN_SYSTEM.md`](UI_DESIGN_SYSTEM.md)** and
+is implemented in `gui/theme.py` (one token set + one application-wide
+stylesheet that restyles every Qt widget class, so no default-Qt surface
+remains) plus shared components `gui/widgets/card.py` and
+`gui/widgets/status_chip.py`.
+
+Highlights:
+
+- **Design system** — a 4-based spacing scale (4·8·12·16·24·32·48), a 6/8/12
+  radius scale, a Display→Caption type scale, and a full colour-token set
+  (layered surfaces + one accent + semantic status hues), all in one place.
+- **Monitor** (the priority) — rebuilt into five information-first cards
+  (Current Study · Pipeline · Live Metrics · Convergence · Timeline). It still
+  renders entirely from engine events; `bar`, `pipeline`, `forces`,
+  `residuals`, `cl_curve`, `cd_curve`, `_tabs`, `_scroll`, `handle_event`,
+  `_append_iteration`, and `_reset_case` are all unchanged in behaviour.
+- **Global restyle** — tables (sticky, uppercase headers, row hover), buttons
+  (accent/ghost/flat variants), inputs (focus ring), tabs (underline active),
+  thin scrollbars, cards/sections, menus, tooltips, and progress bars are all
+  restyled from the shared stylesheet — the whole app updates from one file.
+
+Per the engineering rule (`Business Logic → AppState → View Models →
+Presentation`), only the presentation layer changed. Full regression suite
+stays green; Neo adds snapshot-style UI tests (`tests/test_neo_ui.py`).

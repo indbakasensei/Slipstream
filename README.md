@@ -523,19 +523,19 @@ slipstream/
 │   │   └── internal_flow.py #   executable Internal Flow workflow (Capability 1)
 │   └── logging_setup.py     # per-case log files
 │
-├── gui/                     # PySide6 desktop shell
+├── gui/                     # PySide6 desktop shell — Neo design system
 │   ├── app.py, main_window.py
-│   ├── theme.py
+│   ├── theme.py             # v2.0.0-dev: Neo design tokens + app-wide stylesheet (see docs/UI_DESIGN_SYSTEM.md)
 │   ├── state.py             # AppState (dataset, config, running flag, template metadata)
 │   ├── param_render.py      # v2.0.0-dev: metadata → widget pipeline (Dynamic Template UI)
 │   ├── event_bridge.py      # bus → Qt signals bridge
-│   ├── project_selector_dialog.py  # v1.0.0-alpha.5: Open Recent/Existing/Create New
+│   ├── project_selector_dialog.py  # v1.0.0-alpha.5: Open Recent/Existing/Create New (+ template picker)
 │   ├── panels/
-│   │   ├── dashboard.py, queue_panel.py, monitor.py, params_panel.py,
+│   │   ├── dashboard.py, queue_panel.py, monitor.py (Neo cards), params_panel.py,
 │   │   │   results_table.py, charts_panel.py, stats_panel.py,
 │   │   │   images_panel.py, log_console.py, explorer.py
 │   └── widgets/
-│       └── cards.py, pipeline_widget.py
+│       └── card.py, cards.py, status_chip.py, pipeline_widget.py, sidebar.py, …
 │
 ├── tests/                   # 33 tests
 │   ├── test_engine.py       # baseline: models, config, aero, orchestrator
