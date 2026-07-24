@@ -69,14 +69,17 @@ class AppState(QObject):
         """(Re)load config + workbook; raises ConfigError on bad input."""
         self.config_path = Path(config_path)
         self.cfg = load_config(self.config_path)
-        # Refresh the runtime context with this project's identity (still
-        # the External Aerodynamics template — Phase 2 is single-template).
-        self.context = SimulationContext.default(project=self.config_path.stem)
+        # Capability 3: restore this project's *own* template (from
+        # cfg.template_id()) — study definition, execution strategy, workbook
+        # schema, and the dynamic UI all follow from it. An External
+        # Aerodynamics project resolves exactly as before.
+        self.context = SimulationContext.for_config(self.cfg,
+                                                    project=self.config_path.stem)
         self.experiment_definition = ExperimentDefinition.from_context(self.context)
         # Same logging contract as the CLI: root at DEBUG, rotating file in
         # <work_dir>/logs. The Qt console handler attaches per-run on top.
         setup_logging(self.cfg.work_dir() / "logs")
-        self.excel = ExcelManager(self.cfg.excel)
+        self.excel = ExcelManager.for_config(self.cfg)
         self.wbp_names = self.excel.wbp_names()
         self.reload_dataset()
         log.info("Project loaded: %s  (%d experiments, WBP: %s)",

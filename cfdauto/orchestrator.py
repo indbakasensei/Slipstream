@@ -59,7 +59,7 @@ from .models import (
     CaseResult,
     Experiment,
 )
-from .platform import get_default_template
+from .simulation_context import SimulationContext
 from .state import RunState
 from .study_analytics import StudySummary, analyze_study
 
@@ -94,11 +94,13 @@ class Orchestrator:
 
         # Phase 7: execution is owned by the active template's strategy,
         # resolved data-driven from the template (no `if template == ...`).
-        # Single-template runtime today → External Aerodynamics; the
-        # orchestrator's loop is identical regardless of which strategy this
-        # is. The ExecutionContext is (re)built per run() call, when the
-        # queued experiments are known.
-        self._template = get_default_template()
+        # Capability 3: the template is the *project's* (from
+        # ``cfg.template_id()``), not a global default — so a project's
+        # execution strategy is selected per project. External Aerodynamics
+        # configs resolve to exactly the same strategy as before. The
+        # ExecutionContext is (re)built per run() call, when the queued
+        # experiments are known.
+        self._template = SimulationContext.for_config(cfg).template
         self._strategy = strategy_for_template(self._template)
         self._exec_context: Optional[ExecutionContext] = None
         self._execution_result: Optional[ExecutionResult] = None

@@ -41,12 +41,27 @@ RADIUS_SM = 6           # tighter radius for small controls (inputs, chips)
 
 CARD_MARGIN = SPACE_MD    # internal padding for stat cards / section bodies
 PANEL_MARGIN = SPACE_SM   # internal padding for ordinary panels
+SECTION_SPACING = SPACE_MD  # gap between major sections within a panel
+CONTROL_SPACING = SPACE_SM  # gap between adjacent controls in a row/form
 
 FONT_SIZE_H1 = 20          # page/section titles (was 17px, ad hoc)
 FONT_SIZE_H2 = 13          # sub-headers / group labels
 FONT_SIZE_BODY = 12        # default body text
 FONT_SIZE_SMALL = 11       # hints, captions, monospace log/console text
 FONT_SIZE_STAT = 26        # big numbers on stat cards
+
+# ---------------------------------------------------------------------------
+# Layout minimums — Capability 3 UI foundation. Reusable constants so panels
+# and the main splitter declare consistent minimum sizes and never clip or
+# collapse a region into unreadability on small windows. (Infrastructure for
+# the upcoming Neo UI redesign — no visual restyle here.)
+# ---------------------------------------------------------------------------
+MIN_SIDEBAR_WIDTH = 200    # nav sidebar never narrower than this
+MIN_CENTER_WIDTH = 420     # center workspace stays usable
+MIN_QUEUE_WIDTH = 320      # queue table keeps its columns readable
+MIN_PANEL_WIDTH = 300      # a dock/side panel (Monitor, Parameters) minimum
+MIN_PLOT_HEIGHT = 240      # a chart/plot area never shrinks below this
+MIN_CONTROL_HEIGHT = 26    # buttons / spin boxes baseline touch height
 
 # Status vocabulary — shared by queue table, chips, pipeline stages, cards.
 STATUS_COLORS = {

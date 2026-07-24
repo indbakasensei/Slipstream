@@ -27,6 +27,7 @@ from .platform import (
     ParameterDefinition,
     SimulationTemplate,
     StudyDefinition,
+    get_default_registry,
     get_default_template,
 )
 
@@ -52,9 +53,29 @@ class SimulationContext:
     # ------------------------------------------------------------------ #
     @classmethod
     def default(cls, project: Optional[str] = None) -> "SimulationContext":
-        """The context today's application always uses — External
-        Aerodynamics, resolved through the registry."""
+        """The registry-default context — External Aerodynamics. Kept for the
+        genuine default cases (a bare application before any project is loaded);
+        project-aware code should prefer :meth:`for_config` / :meth:`for_template_id`."""
         return cls(template=get_default_template(), project=project)
+
+    @classmethod
+    def for_template_id(cls, template_id: str,
+                        project: Optional[str] = None) -> "SimulationContext":
+        """The context for a specific template id, resolved through the
+        registry (raises ``LookupError`` naming what exists if unknown). An
+        empty id falls back to the default — so a project that never chose a
+        template still resolves cleanly."""
+        if not template_id:
+            return cls.default(project=project)
+        return cls(template=get_default_registry().get(template_id),
+                   project=project)
+
+    @classmethod
+    def for_config(cls, cfg, project: Optional[str] = None) -> "SimulationContext":
+        """The context a **project** runs under — its ``Config.template_id()``.
+        This is the seam that makes the runtime/UI template-aware per project
+        instead of assuming External Aerodynamics."""
+        return cls.for_template_id(cfg.template_id(), project=project)
 
     # -- metadata accessors (delegate to the template) ------------------ #
     @property

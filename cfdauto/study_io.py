@@ -51,9 +51,18 @@ class StudyIO:
 
     @classmethod
     def default(cls, column_map: ColumnMap) -> "StudyIO":
-        """Build for today's default study (External Aerodynamics)."""
+        """Build for the registry-default study (External Aerodynamics). Kept
+        for genuine defaults; project-aware callers should prefer
+        :meth:`for_config`."""
         return cls(ExperimentDefinition.from_context(SimulationContext.default()),
                    column_map)
+
+    @classmethod
+    def for_config(cls, cfg) -> "StudyIO":
+        """Build the study-I/O mapping for a **project** — its template's
+        study definition, with the project's ``excel.columns`` overrides
+        (Capability 3 — no default template assumption)."""
+        return cls(ExperimentDefinition.for_config(cfg), cfg.excel.columns)
 
     # ------------------------------------------------------------------ #
     # Column resolution: study parameter -> actual spreadsheet header

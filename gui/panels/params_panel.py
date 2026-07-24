@@ -17,11 +17,11 @@ from __future__ import annotations
 
 from typing import Dict, List, Tuple
 
-from PySide6.QtWidgets import (QDoubleSpinBox, QFormLayout, QGroupBox,
+from PySide6.QtWidgets import (QDoubleSpinBox, QFormLayout, QFrame, QGroupBox,
                                QHBoxLayout, QLabel, QMessageBox, QPushButton,
-                               QVBoxLayout, QWidget)
+                               QScrollArea, QVBoxLayout, QWidget)
 
-from gui import param_render
+from gui import param_render, theme
 from gui.state import AppState
 
 _EDITABLE = {"PENDING", "FAILED", "SKIP", ""}
@@ -65,11 +65,27 @@ class ParamsPanel(QWidget):
         ar = QHBoxLayout(); ar.addWidget(self.add_btn); ar.addWidget(self.dup_btn)
         af.addRow(ar)
 
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(6, 6, 6, 6)
-        lay.addWidget(self.sel_box)
-        lay.addWidget(self.add_box)
-        lay.addStretch(1)
+        # Capability 3 UI foundation: the form is now dynamic (a template may
+        # declare many parameters, e.g. Internal Flow's five + WBP columns), so
+        # the whole panel scrolls rather than clipping in a short dock.
+        content = QWidget()
+        cv = QVBoxLayout(content)
+        cv.setContentsMargins(theme.PANEL_MARGIN, theme.PANEL_MARGIN,
+                              theme.PANEL_MARGIN, theme.PANEL_MARGIN)
+        cv.setSpacing(theme.SECTION_SPACING)
+        cv.addWidget(self.sel_box)
+        cv.addWidget(self.add_box)
+        cv.addStretch(1)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.NoFrame)
+        self._scroll.setWidget(content)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(self._scroll)
+        self.setMinimumWidth(theme.MIN_PANEL_WIDTH)
 
         # -- wiring ------------------------------------------------------ #
         self.apply_btn.clicked.connect(self._apply)

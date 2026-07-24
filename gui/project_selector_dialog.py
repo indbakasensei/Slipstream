@@ -15,10 +15,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional, Union
 
-from PySide6.QtWidgets import (QDialog, QFileDialog, QHBoxLayout, QLabel,
-                               QLineEdit, QListWidget, QMessageBox,
+from PySide6.QtWidgets import (QComboBox, QDialog, QFileDialog, QHBoxLayout,
+                               QLabel, QLineEdit, QListWidget, QMessageBox,
                                QPushButton, QVBoxLayout)
 
+from cfdauto.platform import DEFAULT_TEMPLATE_ID, get_default_registry
 from cfdauto.project_manager import (
     ProjectError,
     add_recent_project,
@@ -26,6 +27,7 @@ from cfdauto.project_manager import (
     load_recent_projects,
     open_project,
 )
+from cfdauto.project_scaffold import scaffold_project
 
 
 class ProjectSelectorDialog(QDialog):
@@ -72,6 +74,24 @@ class ProjectSelectorDialog(QDialog):
         form.addWidget(self.name_edit)
         form.addWidget(self.desc_edit)
         v.addLayout(form)
+
+        # Capability 3: choose which SimulationTemplate the new project uses.
+        # Populated from the registry (External Aerodynamics, Internal Flow,
+        # and any future template) — the UI stays a renderer of metadata.
+        tmpl_row = QHBoxLayout()
+        tmpl_row.addWidget(QLabel("Template:"))
+        self.template_combo = QComboBox()
+        for tmpl in get_default_registry().all():
+            self.template_combo.addItem(f"{tmpl.name}", tmpl.id)
+        default_ix = self.template_combo.findData(DEFAULT_TEMPLATE_ID)
+        if default_ix >= 0:
+            self.template_combo.setCurrentIndex(default_ix)
+        self.template_combo.setToolTip(
+            "The kind of CFD study this project runs. Determines its "
+            "workbook columns, study defaults, and execution strategy.")
+        tmpl_row.addWidget(self.template_combo, 1)
+        v.addLayout(tmpl_row)
+
         create_btn = QPushButton("Create New…")
         create_btn.clicked.connect(self._browse_create_new)
         v.addWidget(create_btn)
@@ -110,7 +130,8 @@ class ProjectSelectorDialog(QDialog):
         if not parent_dir:
             return
         self.create_path(Path(parent_dir) / name, name,
-                         self.desc_edit.text().strip())
+                         self.desc_edit.text().strip(),
+                         template_id=self.template_combo.currentData() or "")
 
     # ------------------------------------------------------------------ #
     # Directly testable — no QFileDialog involved.
@@ -126,11 +147,19 @@ class ProjectSelectorDialog(QDialog):
         self.accept()
         return True
 
-    def create_path(self, root: Path, name: str, description: str = "") -> bool:
+    def create_path(self, root: Path, name: str, description: str = "",
+                    template_id: str = "") -> bool:
+        """Create the project folder + metadata, then scaffold its
+        template-specific ``config.yaml`` + workbook so it opens ready to run.
+        ``template_id`` empty = the registry default."""
         try:
-            create_project(root, name, description)
+            create_project(root, name, description, template_id=template_id)
+            scaffold_project(root, template_id)
         except ProjectError as exc:
             QMessageBox.critical(self, "Could not create project", str(exc))
+            return False
+        except Exception as exc:                        # scaffold/openpyxl/yaml
+            QMessageBox.critical(self, "Could not set up project", str(exc))
             return False
         add_recent_project(root, self._recents_store_path)
         self.selected_project_root = Path(root)

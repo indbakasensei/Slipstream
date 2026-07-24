@@ -40,7 +40,7 @@ _HEADER_FONT = Font(bold=True)
 class ExcelManager:
     """Owns the workbook: column mapping, experiment parsing, result writing."""
 
-    def __init__(self, cfg: ExcelConfig):
+    def __init__(self, cfg: ExcelConfig, study_io: Optional["StudyIO"] = None):
         self.cfg = cfg
         self.path = cfg.path()
         self.wb = load_workbook(self.path)
@@ -56,8 +56,18 @@ class ExcelManager:
         # study's input parameters and builds Experiments from them. Built
         # here (before column mapping) so the required-column check and the
         # reader both go through the same template-driven boundary.
-        self._study_io = StudyIO.default(cfg.columns)
+        #
+        # Capability 3: a project passes its own template-resolved StudyIO
+        # (via ``StudyIO.for_config``); without one we fall back to the
+        # registry default so every existing caller is unchanged.
+        self._study_io = study_io or StudyIO.default(cfg.columns)
         self._map_columns()
+
+    @classmethod
+    def for_config(cls, cfg) -> "ExcelManager":
+        """Build a project-template-aware manager from a full :class:`Config`
+        — its ``excel`` section plus its template's study-I/O mapping."""
+        return cls(cfg.excel, study_io=StudyIO.for_config(cfg))
 
     # ------------------------------------------------------------------ #
     # Column discovery

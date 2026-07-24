@@ -57,6 +57,12 @@ class ProjectMetadata:
     project_version: int = 1
     created_with: str = ""        # e.g. "Slipstream v1.0.0-alpha.5"
     tags: List[str] = field(default_factory=list)
+    template_id: str = ""         # Capability 3: the SimulationTemplate this
+                                  # project was created for. Empty = the
+                                  # registry default (older projects) — the
+                                  # authoritative runtime copy lives in
+                                  # config/config.yaml (runtime.template); this
+                                  # is the desktop-layer record of the choice.
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -141,12 +147,19 @@ def validate_project_structure(root: Union[str, Path]) -> ProjectValidationResul
 # Create / open
 # --------------------------------------------------------------------------- #
 def create_project(root: Union[str, Path], name: str, description: str = "",
-                   tags: Optional[List[str]] = None) -> ProjectMetadata:
+                   tags: Optional[List[str]] = None,
+                   template_id: str = "") -> ProjectMetadata:
     """Create a new project at ``root``.
 
     An existing *empty* directory may be adopted. An existing *non-empty*
     directory raises :class:`ProjectError` — this never silently overwrites
     something that's already there.
+
+    ``template_id`` records which :class:`SimulationTemplate` the project was
+    created for (empty = the registry default). This module only writes the
+    metadata; generating the matching ``config.yaml`` + workbook is
+    :func:`cfdauto.project_scaffold.scaffold_project` (which keeps this module
+    free of any engine/openpyxl import, as designed).
     """
     root = Path(root)
     if root.exists() and any(root.iterdir()):
@@ -162,7 +175,7 @@ def create_project(root: Union[str, Path], name: str, description: str = "",
     meta = ProjectMetadata(
         name=name, description=description, created=now, last_opened=now,
         project_version=1, created_with=f"Slipstream v{_slipstream_version}",
-        tags=list(tags or []))
+        tags=list(tags or []), template_id=template_id)
     _write_metadata(root, meta)
     return meta
 

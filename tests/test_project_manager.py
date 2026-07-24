@@ -56,7 +56,7 @@ def test_create_project_builds_standard_layout_and_metadata(tmp_path):
     assert on_disk["name"] == "Wing_v2"
     assert set(on_disk.keys()) == {"name", "description", "created",
                                    "last_opened", "project_version",
-                                   "created_with", "tags"}
+                                   "created_with", "tags", "template_id"}
 
 
 def test_create_project_rejects_existing_nonempty_directory(tmp_path):

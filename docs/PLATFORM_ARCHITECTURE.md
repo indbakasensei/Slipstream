@@ -1,6 +1,6 @@
 # Slipstream — Universal CFD Platform Architecture
 
-**Status: v2.0.0-dev, Capability 2 (dynamic template-driven UI).**
+**Status: v2.0.0-dev, Capability 3 (project template selection + UX foundation).**
 This document describes the architectural direction and every migration
 phase: the metadata layer (Phase 1), the runtime's migration onto it
 (Phase 2), template-driven study definitions/ordering (Phase 3A, §7),
@@ -1044,3 +1044,134 @@ code**. Internal Flow proves it end-to-end: its form, queue, validation,
 units, tooltips, defaults, and chart selectors all exist with no panel change —
 only `platform/internal_flow.py` and `execution/internal_flow.py` were ever
 written for it.
+
+---
+
+## 15. Capability 3 — project template selection & UX foundation
+
+### 15.1 The last default assumption, removed
+
+Through Capability 2 the *UI* was metadata-driven, but a **project** still
+implicitly meant External Aerodynamics: `Orchestrator`, `ExcelManager`, and
+`AppState` all called `get_default_template()` / `SimulationContext.default()`.
+Capability 3 makes the project itself template-aware. One new config field —
+`runtime.template` (a SimulationTemplate id; empty ⇒ the registry default, so
+every pre-existing config loads unchanged) — is the single source of truth,
+read through one accessor, `Config.template_id()`.
+
+```
+config.yaml (runtime.template)  ──►  Config.template_id()
+                                          │
+              ┌───────────────────────────┼─────────────────────────────┐
+              ▼                            ▼                             ▼
+ SimulationContext.for_config     ExperimentDefinition.for_config   StudyIO.for_config
+       (template, metrics)            (input schema, rows)          (spreadsheet mapping)
+              │                            │                             │
+              ▼                            ▼                             ▼
+  Orchestrator._template /        workbook generation           ExcelManager.for_config
+  strategy_for_template(...)      (build_template + exp_def)     (reads project columns)
+              │                                                          │
+              ▼                                                          ▼
+   per-project execution strategy                         AppState.context / experiment_definition
+                                                          → the dynamic UI (Capability 2)
+```
+
+There is no `if template == ...` anywhere; every seam resolves the id through
+the registry. `.default()` survives only where a default is genuinely correct
+(a bare app before any project is open, and back-compat callers that pass no
+template).
+
+### 15.2 Per-project configuration & persistence
+
+A project remembers its template in **two** places, each authoritative for its
+layer:
+
+- **`config/config.yaml` → `runtime.template`** — the engine's copy. Everything
+  the runtime resolves (study definition, workbook schema, execution strategy,
+  UI) derives from it.
+- **`project.json` → `template_id`** — the desktop-layer record of the choice
+  (`ProjectMetadata`), written by `create_project(...)`. Older `project.json`
+  files without the field read back `""` (→ default), so they still open.
+
+`Config.template_id()` and `ProjectMetadata.template_id` are the only new
+persisted state; execution strategy, workbook schema, and study definition are
+*derived* from the template, never stored separately (no drift possible).
+
+### 15.3 New-project flow (choose template → ready to run)
+
+```
+New Project dialog ─► pick template (registry-populated combo)
+        │
+        ▼
+create_project(root, name, template_id)      # project.json + folders
+        │
+        ▼
+scaffold_project(root, template_id)          # cfdauto/project_scaffold.py
+        │   ├─ data/experiments.xlsx   (build_template with the template's ExperimentDefinition)
+        │   └─ config/config.yaml      (runtime.template + absolute paths + mock:true)
+        ▼
+MainWindow._load(config/config.yaml) ─► AppState restores template → study → strategy → UI
+```
+
+`project_scaffold.py` is deliberately separate from `project_manager.py`: the
+latter stays free of any engine/openpyxl import (folders + metadata only),
+while the former does the template-aware generation. Workbook generation is
+already template-agnostic (§8), so it needed no change — only the *caller* now
+passes the project's `ExperimentDefinition`.
+
+### 15.4 Loading an existing project restores everything
+
+`AppState.load_project` now calls `SimulationContext.for_config(cfg)` and
+`ExcelManager.for_config(cfg)`: the project's template, its study, its
+execution strategy (via the orchestrator), and the metadata-driven UI all
+restore automatically from `runtime.template`. An External Aerodynamics project
+resolves to exactly the prior objects; an Internal Flow project loads its own
+columns, defaults, and strategy with no code path special-cased.
+
+### 15.5 UX foundation (presentation only)
+
+Infrastructure for the upcoming **Neo UI** milestone — no visual restyle, no
+themes/animations/glass:
+
+- **Design tokens** (`gui/theme.py`): added `SECTION_SPACING`,
+  `CONTROL_SPACING`, and layout minimums `MIN_SIDEBAR_WIDTH`,
+  `MIN_CENTER_WIDTH`, `MIN_QUEUE_WIDTH`, `MIN_PANEL_WIDTH`, `MIN_PLOT_HEIGHT`,
+  `MIN_CONTROL_HEIGHT` — one source of truth for spacing/padding/minimums.
+- **Monitor** (`gui/panels/monitor.py`): restructured from a cramped
+  side-by-side grid into a clear hierarchy (title over details), a labelled &
+  aligned "Solver Pipeline" progress block, a plot area with a minimum height,
+  and the whole panel inside a `QScrollArea` so a short dock scrolls instead of
+  clipping. Every widget attribute (`bar`, `pipeline`, `forces`, `_tabs`, …) and
+  all `handle_event` logic are unchanged.
+- **Parameters** (`gui/panels/params_panel.py`): wrapped in a scroll area — the
+  dynamic form may be long (Internal Flow's five inputs + WBP columns) and must
+  never clip.
+- **Responsive main splitter** (`gui/main_window.py`): per-region minimum widths
+  from the tokens + `setChildrenCollapsible(False)` so no region collapses to an
+  unreadable sliver on a small window; the user still resizes freely above the
+  floors.
+
+Per the engineering rule, only the **presentation** layer changed here —
+`AppState` and the business logic are untouched.
+
+### 15.6 Remaining assumptions
+
+- **Non-aero *execution* via the orchestrator** still depends on the
+  airfoil-shaped `Experiment` identity (`case_id` / `geometry_key` / `validate`
+  reference `aoa`/`velocity`). Capability 3 makes strategy *selection*,
+  workbook generation/reading, persistence, loading, and the UI per-project;
+  running a non-aero study end-to-end through the orchestrator still needs the
+  Experiment-identity generalization (the standing Phase 8 item — Internal Flow
+  execution today uses its own bridge builder, §13.4).
+- **Output/metric columns** remain the airfoil set in `ColumnMap` /
+  `ExcelManager.read_row_outputs` (a template's *inputs* are generic; its
+  *outputs* are the next generalization).
+- **A fresh project defaults to `mock: true`** so it runs immediately without
+  ANSYS; the user disables it once a real baseline case is configured.
+
+### 15.7 Performance impact
+
+None measurable. Template resolution is a single registry dict lookup at
+project-load / orchestrator-construction time; the UX foundation changes are
+static layout wiring. No new per-frame work, no new I/O. Full suite runtime
+unchanged.

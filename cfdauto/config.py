@@ -211,6 +211,14 @@ class RuntimeConfig:
     rerun_stale_running: bool = True     # rows left RUNNING by a crash
     mock: bool = False                   # exercised by tests / --mock
     study_name: str = "default"          # v0.9-M3: groups runs in the DB
+    template: str = ""                   # Capability 3: the project's
+                                         # SimulationTemplate id (execution
+                                         # strategy, study definition, and
+                                         # workbook schema all derive from it).
+                                         # Empty = the registry default
+                                         # (External Aerodynamics) — so every
+                                         # pre-Capability-3 config loads
+                                         # unchanged.
 
 
 @dataclass
@@ -227,6 +235,16 @@ class Config:
         p = Path(self.runtime.work_dir)
         p.mkdir(parents=True, exist_ok=True)
         return p
+
+    def template_id(self) -> str:
+        """The project's SimulationTemplate id — ``runtime.template`` if set,
+        else the registry default. Every per-project template resolution
+        (study definition, execution strategy, workbook schema, UI) goes
+        through this one accessor."""
+        if self.runtime.template:
+            return self.runtime.template
+        from .platform import DEFAULT_TEMPLATE_ID
+        return DEFAULT_TEMPLATE_ID
 
     def validate_static(self) -> List[str]:
         """Checks that need no ANSYS installation (safe in --dry-run/--mock)."""

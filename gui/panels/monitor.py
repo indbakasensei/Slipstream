@@ -19,8 +19,8 @@ from __future__ import annotations
 from typing import Dict, List
 
 import pyqtgraph as pg
-from PySide6.QtWidgets import (QGridLayout, QLabel, QProgressBar, QTabWidget,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QFrame, QLabel, QProgressBar, QScrollArea,
+                               QTabWidget, QVBoxLayout, QWidget)
 
 from cfdauto.events import Event
 from cfdauto.platform import get_default_template
@@ -97,15 +97,48 @@ class MonitorPanel(QWidget):
         self._cl: List[float] = []
         self._cd: List[float] = []
 
-        grid = QGridLayout()
-        grid.addWidget(self.case_lbl, 0, 0)
-        grid.addWidget(self.info_lbl, 0, 1)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(8, 8, 8, 8)
-        lay.addLayout(grid)
-        lay.addWidget(self.pipeline)
-        lay.addWidget(self.bar)
-        lay.addWidget(tabs, 1)
+        # -- Layout (Capability 3 UI foundation) -------------------------- #
+        # Presentation-only restructure to prepare for the Neo redesign: clear
+        # header hierarchy (title over details, not cramped side-by-side), a
+        # labelled/aligned progress block, plots with a minimum height, and the
+        # whole panel inside a scroll area so a short dock scrolls instead of
+        # clipping. No monitoring logic changed.
+        self.case_lbl.setWordWrap(True)
+        self.info_lbl.setWordWrap(True)
+        header = QVBoxLayout()
+        header.setSpacing(theme.SPACE_XS)
+        header.addWidget(self.case_lbl)
+        header.addWidget(self.info_lbl)
+
+        prog_title = QLabel("Solver Pipeline")
+        prog_title.setProperty("h2", True)
+        self.bar.setMinimumHeight(theme.MIN_CONTROL_HEIGHT)
+        prog = QVBoxLayout()
+        prog.setSpacing(theme.SPACE_SM)
+        prog.addWidget(prog_title)
+        prog.addWidget(self.pipeline)
+        prog.addWidget(self.bar)
+
+        self._tabs.setMinimumHeight(theme.MIN_PLOT_HEIGHT)
+
+        content = QWidget()
+        cv = QVBoxLayout(content)
+        cv.setContentsMargins(theme.PANEL_MARGIN, theme.PANEL_MARGIN,
+                              theme.PANEL_MARGIN, theme.PANEL_MARGIN)
+        cv.setSpacing(theme.SECTION_SPACING)
+        cv.addLayout(header)
+        cv.addLayout(prog)
+        cv.addWidget(self._tabs, 1)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.NoFrame)
+        self._scroll.setWidget(content)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(self._scroll)
+        self.setMinimumWidth(theme.MIN_PANEL_WIDTH)
 
     # ------------------------------------------------------------------ #
     def handle_event(self, evt: Event) -> None:

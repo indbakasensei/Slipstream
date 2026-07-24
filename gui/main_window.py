@@ -132,6 +132,14 @@ class MainWindow(QMainWindow):
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setStretchFactor(2, 0)
+        # Capability 3 responsive foundation: minimum widths (from the shared
+        # design tokens) so no region collapses into an unreadable sliver when
+        # the window is shrunk. The splitter still lets the user resize freely
+        # above these floors; children never clip below them.
+        self.sidebar.setMinimumWidth(theme.MIN_SIDEBAR_WIDTH)
+        self.tabs.setMinimumWidth(theme.MIN_CENTER_WIDTH)
+        self.queue.setMinimumWidth(theme.MIN_QUEUE_WIDTH)
+        self.splitter.setChildrenCollapsible(False)
         # Initial proportions only (~230px sidebar, ~30% queue) — the user
         # can resize freely afterward; nothing here is a hard constraint.
         total = max(self.width(), 1480)

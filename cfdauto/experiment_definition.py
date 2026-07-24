@@ -45,9 +45,16 @@ class ExperimentDefinition:
 
     @classmethod
     def default(cls) -> "ExperimentDefinition":
-        """The runtime schema for today's default study (External
-        Aerodynamics), resolved through the registry."""
+        """The runtime schema for the registry-default study (External
+        Aerodynamics). Kept for genuine defaults; project-aware callers should
+        prefer :meth:`for_config`."""
         return cls.from_context(SimulationContext.default())
+
+    @classmethod
+    def for_config(cls, cfg) -> "ExperimentDefinition":
+        """The runtime input schema for a **project**, from its
+        ``Config.template_id()`` (Capability 3 — no default assumption)."""
+        return cls.from_context(SimulationContext.for_config(cfg))
 
     # -- schema views (delegate to the StudyDefinition) ----------------- #
     def spreadsheet_columns(self) -> List[Dict[str, object]]:
