@@ -6,13 +6,16 @@ GUI Modernization (v1.0.0-rc2) layout::
     │ toolbar: Open Project · Reload · Run All · Stop · Mock mode          │
     ├──────────┬─────────────────────────────────────────┬─────────────────┤
     │          │  ⚠ MOCK MODE banner (only when active) ⚠                 │
-    │ Sidebar  ├─────────────────────────────────────────┬─────────────────┤
+    │  Brand   │  WorkspaceHeader (page · project ·      │                 │
+    │  header  │   template · schedule)                  │                 │
+    │ Sidebar  ├─────────────────────────────────────────┤                 │
     │ (nav +   │  Center workspace (QStackedWidget:       │ Queue           │
     │  project │   Dashboard / Results / Charts / Images) │ (persistent —   │
-    │  tree)   │                                          │  not a dock)    │
+    │  tree)   │   — or the EmptyState page when no       │  not a dock)    │
+    │          │     project is loaded                    │                 │
     ├──────────┴──────────────────────────────────────────┴─────────────────┤
     │ Log · Statistics · Console (tabbed bottom dock)                       │
-    └ status bar ────────────────────────────────────────────────────────────┘
+    └ status bar: engine · queue · project · template · python · mode · ver ┘
 
 Monitor and Parameters remain QDockWidgets, hidden by default and reachable
 from the View menu — they no longer permanently compete with Queue for
@@ -29,10 +32,11 @@ keep working unchanged — both methods exist on either widget type.
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 from typing import Dict, Optional, Set
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QDialog, QDockWidget, QFileDialog, QLabel,
                                QMainWindow, QMessageBox, QSplitter,
@@ -55,7 +59,8 @@ from gui.panels.queue_panel import QueuePanel
 from gui.panels.results_table import ResultsTablePanel
 from gui.panels.stats_panel import StatsPanel
 from gui.state import AppState
-from gui.widgets import Sidebar
+from gui.widgets import EmptyState, Sidebar, WorkspaceHeader, make_icon
+from gui.widgets.sidebar import WORKSPACE_PAGES
 
 log = logging.getLogger("gui.main")
 
@@ -91,6 +96,8 @@ class MainWindow(QMainWindow):
         self._make_statusbar()
         self._wire()
 
+        self._refresh_workspace_chrome()
+
         if config_path and Path(config_path).exists():
             self._load(config_path)
         elif not self.state.cfg:
@@ -119,12 +126,34 @@ class MainWindow(QMainWindow):
         for page in self._nav_pages.values():
             self.tabs.addWidget(page)
 
+        # Neo (v2.1): workspace chrome above the page stack — page title +
+        # project/template/schedule context line.
+        self.workspace_header = WorkspaceHeader()
+        center_content = QWidget()
+        cv = QVBoxLayout(center_content)
+        cv.setContentsMargins(0, 0, 0, 0)
+        cv.setSpacing(0)
+        cv.addWidget(self.workspace_header)
+        cv.addWidget(self.tabs, 1)
+
+        # Empty-state page for the startup / no-project case ("No Project
+        # Loaded — Open or Create a Project"). Purely presentational.
+        self.empty_state = EmptyState(
+            "No Project Loaded",
+            "Open or create a Slipstream project to start your CFD study.",
+            action_text="Open Project…")
+        self.empty_state.actionClicked.connect(self._open_dialog)
+
+        self._center_stack = QStackedWidget()
+        self._center_stack.addWidget(self.empty_state)     # index 0
+        self._center_stack.addWidget(center_content)       # index 1
+
         self.sidebar = Sidebar(self.explorer)
         self.sidebar.pageRequested.connect(self._navigate_to_page)
 
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.addWidget(self.sidebar)
-        self.splitter.addWidget(self.tabs)
+        self.splitter.addWidget(self._center_stack)
         self.splitter.addWidget(self.queue)
         # Sidebar and Queue hold their width; the center workspace absorbs
         # whatever space resizing adds or removes (stretch factors, not
@@ -138,6 +167,7 @@ class MainWindow(QMainWindow):
         # above these floors; children never clip below them.
         self.sidebar.setMinimumWidth(theme.MIN_SIDEBAR_WIDTH)
         self.tabs.setMinimumWidth(theme.MIN_CENTER_WIDTH)
+        self._center_stack.setMinimumWidth(theme.MIN_CENTER_WIDTH)
         self.queue.setMinimumWidth(theme.MIN_QUEUE_WIDTH)
         self.splitter.setChildrenCollapsible(False)
         # Initial proportions only (~230px sidebar, ~30% queue) — the user
@@ -169,6 +199,55 @@ class MainWindow(QMainWindow):
         page = self._nav_pages.get(page_id)
         if page is not None:
             self.tabs.setCurrentWidget(page)
+        label = dict((p[0], p[1]) for p in WORKSPACE_PAGES).get(page_id, page_id)
+        self.workspace_header.set_page(page_id, label)
+
+    def _refresh_workspace_chrome(self) -> None:
+        """Presentation-only: show the empty state vs. the workspace, keep the
+        WorkspaceHeader context (project · template · schedule) and the status
+        bar project/template/mode readouts in sync with the loaded state."""
+        st = self.state
+        has_project = st.cfg is not None
+        self._center_stack.setCurrentIndex(1 if has_project else 0)
+        if has_project:
+            project = st.config_path.stem if st.config_path else ""
+            template = ""
+            schedule = ""
+            try:
+                tpl = getattr(st.context, "template", None)
+                template = getattr(tpl, "name", "") if tpl is not None else ""
+            except Exception:
+                template = ""
+            try:
+                if st.cfg:
+                    schedule = str(st.cfg.excel.file)
+            except Exception:
+                schedule = ""
+            self.workspace_header.set_context(project, template, schedule)
+            pid = self.sidebar.current_page() or "dashboard"
+            label = dict((p[0], p[1]) for p in WORKSPACE_PAGES).get(pid, pid)
+            self.workspace_header.set_page(pid, label)
+        self._update_status_context()
+
+    def _update_status_context(self) -> None:
+        """Status-bar right-side readouts: project · template · python · mode."""
+        st = self.state
+        project = st.config_path.stem if st.config_path else "—"
+        template = ""
+        try:
+            tpl = getattr(st.context, "template", None)
+            template = getattr(tpl, "name", "") if tpl is not None else ""
+        except Exception:
+            template = ""
+        self.sb_project.setText(f"Project: {project}")
+        self.sb_template.setText(f"Template: {template}" if template
+                                 else "Template: —")
+        mode = "MOCK" if st.effective_mock else "LIVE"
+        colour = "#e8a33d" if mode == "MOCK" else "#3fbf7f"
+        self.sb_mode.setText(mode)
+        self.sb_mode.setStyleSheet(
+            f"color: {colour}; background: rgba(0,0,0,0); "
+            f"font-weight: 700; letter-spacing: 0.5px; padding: 2px 8px;")
 
     # ------------------------------------------------------------------ #
     # Docks: Monitor + Parameters (hidden by default) and the bottom
@@ -248,26 +327,75 @@ class MainWindow(QMainWindow):
                                  triggered=self._about))
 
         # Toolbar: only the five primary actions — everything else lives
-        # in menus (no duplicated Run buttons, no toolbar clutter).
+        # in menus (no duplicated Run buttons, no toolbar clutter). Neo
+        # (v2.1): painted vector icons + a caption that groups the run
+        # controls into one engineering cluster.
         tb = self.addToolBar("Main")
         tb.setObjectName("MainToolbar")
         tb.setMovable(False)
+        tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        tb.setIconSize(QSize(theme.TOOLBAR_ICON_SIZE, theme.TOOLBAR_ICON_SIZE))
+
+        self.act_open.setIcon(make_icon("open", theme.TEXT))
+        self.act_reload.setIcon(make_icon("reload", theme.TEXT))
+        self.act_run.setIcon(make_icon("run", theme.ACCENT_TEXT))
+        self.act_stop.setIcon(make_icon("stop", theme.WARNING))
+        self.act_mock.setIcon(make_icon("mock", theme.TEXT))
+
         tb.addActions([self.act_open, self.act_reload])
         tb.addSeparator()
+        sim_cap = QLabel("SIMULATION")
+        sim_cap.setProperty("toolbarGroup", True)
+        tb.addWidget(sim_cap)
         tb.addActions([self.act_run, self.act_stop])
         tb.addSeparator()
         tb.addAction(self.act_mock)
         self._toolbar = tb
 
+        # Run = primary (accent fill), Stop = caution (warning tint). The
+        # mock action keeps its own inline styling in _sync_mock_ui().
+        run_btn = tb.widgetForAction(self.act_run)
+        if run_btn is not None:
+            run_btn.setProperty("toolbarAccent", True)
+            run_btn.style().unpolish(run_btn)
+            run_btn.style().polish(run_btn)
+        stop_btn = tb.widgetForAction(self.act_stop)
+        if stop_btn is not None:
+            stop_btn.setProperty("toolbarWarning", True)
+            stop_btn.style().unpolish(stop_btn)
+            stop_btn.style().polish(stop_btn)
+
     def _make_statusbar(self) -> None:
+        def _sep() -> QLabel:
+            s = QLabel("·")
+            s.setProperty("statusSep", True)
+            return s
+
+        sb = self.statusBar()
+        # Left: live engine + queue readouts (names/text semantics preserved).
         self.sb_engine = QLabel("engine: idle")
-        self.sb_engine.setStyleSheet("padding: 2px 8px;")
+        self.sb_engine.setProperty("statusInfo", True)
         self.sb_queue = QLabel("")
-        self.statusBar().addWidget(self.sb_engine)
-        self.statusBar().addWidget(QLabel("  ·  "))
-        self.statusBar().addWidget(self.sb_queue)
-        self.statusBar().addPermanentWidget(
-            QLabel(f"Slipstream v{cfdauto.__version__}"))
+        self.sb_queue.setProperty("statusInfo", True)
+        sb.addWidget(self.sb_engine)
+        sb.addWidget(_sep())
+        sb.addWidget(self.sb_queue)
+        # Right: engineering context — project · template · python · mode · ver.
+        self.sb_project = QLabel("Project: —")
+        self.sb_project.setProperty("statusInfo", True)
+        self.sb_template = QLabel("Template: —")
+        self.sb_template.setProperty("statusInfo", True)
+        self.sb_python = QLabel(
+            f"Py {sys.version_info.major}.{sys.version_info.minor}")
+        self.sb_python.setProperty("statusInfo", True)
+        self.sb_mode = QLabel("LIVE")
+        self.sb_mode.setProperty("statusInfo", True)
+        self.sb_version = QLabel(f"Slipstream v{cfdauto.__version__}")
+        self.sb_version.setProperty("statusInfo", True)
+        for w in (self.sb_project, self.sb_template, self.sb_python,
+                  self.sb_mode, self.sb_version):
+            sb.addPermanentWidget(_sep())
+            sb.addPermanentWidget(w)
 
     # ------------------------------------------------------------------ #
     # Wiring
@@ -315,6 +443,8 @@ class MainWindow(QMainWindow):
         self.mock_banner.setVisible(is_mock)
         # Window title also carries the badge (visible in taskbar / Alt+Tab).
         self.setWindowTitle(BASE_TITLE + ("   [MOCK MODE]" if is_mock else ""))
+        # Status-bar MOCK/LIVE chip follows the same effective state.
+        self._update_status_context()
 
     @staticmethod
     def _safe_render(exc: BaseException) -> str:
@@ -342,6 +472,7 @@ class MainWindow(QMainWindow):
             # Reset any UI-only override so the freshly loaded config wins.
             self.state.mock_override = None
             self._sync_mock_ui()
+            self._refresh_workspace_chrome()
             self.statusBar().showMessage(f"Project loaded: {path}", 5000)
         except CFDAutoError as exc:
             QMessageBox.critical(self, "Could not load project",
@@ -449,7 +580,7 @@ class MainWindow(QMainWindow):
             f'{int(c.get("DONE", 0))} done · {int(c.get("FAILED", 0))} failed')
 
     def _open_image(self, path) -> None:
-        self.tabs.setCurrentWidget(self.images)
+        self._navigate_to_page("images")
         self.images.show_file(Path(path))
 
     def _about(self) -> None:

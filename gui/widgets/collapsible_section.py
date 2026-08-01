@@ -32,6 +32,9 @@ class CollapsibleSection(QWidget):
 
         self._toggle_btn = QPushButton()
         self._toggle_btn.setProperty("flat", True)
+        # Neo (v2.1): uppercase caption header chrome, consistent with the
+        # sidebar's section labels (behavior untouched — still a toggle button).
+        self._toggle_btn.setProperty("sectionHeader", True)
         self._toggle_btn.setCursor(Qt.PointingHandCursor)
         self._toggle_btn.clicked.connect(self._on_clicked)
 

@@ -84,7 +84,9 @@ class MonitorPanel(QWidget):
         self.eta_lbl = QLabel("—")
         self.eta_lbl.setProperty("metric", True)
 
-        self.pipeline = PipelineWidget()
+        # Neo (v2.1): a taller pipeline strip reads better in the Monitor than
+        # the dashboard default of 46px; the PipelineWidget API is unchanged.
+        self.pipeline = PipelineWidget(height=60)
         self.bar = QProgressBar()
         self.bar.setRange(0, 100)
         self.bar.setMinimumHeight(theme.MIN_CONTROL_HEIGHT)
@@ -130,7 +132,9 @@ class MonitorPanel(QWidget):
         # CARD LAYOUT
         # ================================================================ #
         # -- Current Study card ------------------------------------------ #
-        study_card = Card("Current Study")
+        # Neo (v2.1): card titles sit at h2 so the Current Study's case
+        # headline (h1) owns the hierarchy.
+        study_card = Card("Current Study", heading_level="h2")
         study_card.set_accessory(self.status_chip)
         study_card.add(self.case_lbl)
         study_card.add(self.info_lbl)
@@ -144,13 +148,15 @@ class MonitorPanel(QWidget):
         study_card.add_layout(prog_row)
 
         # -- Pipeline card ----------------------------------------------- #
-        pipe_card = Card("Pipeline")
+        pipe_card = Card("Pipeline", heading_level="h2")
         pipe_card.add(self.pipeline)
 
         # -- Live Metrics card ------------------------------------------- #
-        metrics_card = Card("Live Metrics")
+        metrics_card = Card("Live Metrics", heading_level="h2")
         grid = QGridLayout()
-        grid.setSpacing(theme.SPACE_SM)
+        grid.setSpacing(theme.SPACE_MD)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
         self._metric_vals: Dict[str, QLabel] = {}
         tiles = [("iterations", "Iterations"), ("residual", "Min residual"),
                  ("cl", cl_name), ("cd", cd_name)]
@@ -161,13 +167,13 @@ class MonitorPanel(QWidget):
         metrics_card.add_layout(grid)
 
         # -- Convergence (plots) card ------------------------------------ #
-        conv_card = Card("Convergence")
+        conv_card = Card("Convergence", heading_level="h2")
         conv_card.add(self._tabs, 1)
 
         # -- Timeline card ----------------------------------------------- #
-        timeline_card = Card("Timeline")
+        timeline_card = Card("Timeline", heading_level="h2")
         self.timeline = QListWidget()
-        self.timeline.setMinimumHeight(120)
+        self.timeline.setMinimumHeight(144)
         self.timeline.setFrameShape(QFrame.NoFrame)
         timeline_card.add(self.timeline, 1)
 

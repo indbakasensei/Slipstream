@@ -27,11 +27,13 @@ _IGNORED = {"read_case", "replace_mesh"}   # folded into Fluent/Setup visually
 
 
 class PipelineWidget(QWidget):
-    def __init__(self, compact: bool = False, parent=None):
+    def __init__(self, compact: bool = False, height: int = 0, parent=None):
         super().__init__(parent)
         self.compact = compact
         self.states = {k: "idle" for k, _ in STAGES}
-        h = 34 if compact else 46
+        # Neo (v2.1): `height` lets a panel request a taller strip (the
+        # Monitor) without affecting the dashboard's default of 46px.
+        h = height or (34 if compact else 46)
         self.setMinimumHeight(h)
         self.setMaximumHeight(h)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -68,7 +70,7 @@ class PipelineWidget(QWidget):
         h = self.height() - 8
         y = 4
         font = QFont(self.font())
-        font.setPointSizeF(8.5 if not self.compact else 8)
+        font.setPointSizeF(9.2 if not self.compact else 8)
         font.setBold(True)
         p.setFont(font)
         x = 0.0

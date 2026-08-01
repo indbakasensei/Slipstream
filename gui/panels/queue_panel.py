@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Optional, Set
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QHBoxLayout,
                                QHeaderView, QLabel, QMenu, QPushButton,
@@ -17,7 +17,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QHBoxLayout,
 
 from gui import param_render, theme
 from gui.state import AppState
-from gui.widgets import SectionHeader
+from gui.widgets import (SectionHeader, StatusBadgeDelegate, ToolbarSection,
+                         make_icon)
 
 
 def _item(text: str, sort_value=None) -> QTableWidgetItem:
@@ -41,17 +42,28 @@ class QueuePanel(QWidget):
         self.state = state
 
         # -- controls ---------------------------------------------------- #
+        # Neo (v2.1): run controls live in one ToolbarSection "group" with
+        # painted icons; behavior/signals unchanged.
         bar = QHBoxLayout()
-        self.run_all = QPushButton("▶ Run All")
+        bar.setSpacing(theme.SPACE_SM)
+        run_grp = ToolbarSection("Run")
+        self.run_all = QPushButton("Run All")
         self.run_all.setProperty("accent", True)
+        self.run_all.setIcon(make_icon("run", theme.ACCENT_TEXT))
+        self.run_all.setIconSize(QSize(theme.TOOLBAR_ICON_SIZE,
+                                       theme.TOOLBAR_ICON_SIZE))
         self.run_sel = QPushButton("Run Selected")
-        self.stop_btn = QPushButton("⏹ Stop after case")
+        self.stop_btn = QPushButton("Stop after case")
+        self.stop_btn.setIcon(make_icon("stop", theme.WARNING))
+        self.stop_btn.setIconSize(QSize(theme.TOOLBAR_ICON_SIZE,
+                                        theme.TOOLBAR_ICON_SIZE))
         self.stop_btn.setEnabled(False)
+        run_grp.add(self.run_all)
+        run_grp.add(self.run_sel)
+        run_grp.add(self.stop_btn)
+        bar.addWidget(run_grp)
+        bar.addSpacing(theme.SPACE_MD)
         self.retry_chk = QCheckBox("Retry FAILED")
-        bar.addWidget(self.run_all)
-        bar.addWidget(self.run_sel)
-        bar.addWidget(self.stop_btn)
-        bar.addSpacing(12)
         bar.addWidget(self.retry_chk)
         bar.addWidget(QLabel("Max cases:"))
         self.max_spin = QSpinBox(); self.max_spin.setRange(0, 9999)
@@ -65,10 +77,18 @@ class QueuePanel(QWidget):
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(30)
+        self.table.verticalHeader().setDefaultSectionSize(34)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._menu)
         self.table.itemSelectionChanged.connect(self._selection_changed)
+        # Neo (v2.1): the Status column renders as rounded chips via a
+        # paint-only delegate (item/text/sort/selection untouched).
+        self._status_delegate = StatusBadgeDelegate()
+        try:
+            self.table.setItemDelegateForColumn(
+                self.columns().index("Status"), self._status_delegate)
+        except ValueError:
+            pass
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(theme.PANEL_MARGIN, theme.PANEL_MARGIN,

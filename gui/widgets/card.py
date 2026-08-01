@@ -21,14 +21,22 @@ from gui import theme
 
 class Card(QFrame):
     """An elevated card: optional header (title + caption + right-side
-    accessory) over a ``body`` content area."""
+    accessory) over a ``body`` content area.
+
+    ``heading_level`` ("h1"|"h2"|"caption"...) picks the typography role for
+    the title label; default "h1" preserves the pre-Neo look everywhere."""
 
     def __init__(self, title: str = "", caption: str = "",
-                 hero: bool = False, parent=None) -> None:
+                 hero: bool = False, heading_level: str = "h1",
+                 parent=None) -> None:
         super().__init__(parent)
         self.setProperty("card", True)
         if hero:
             self.setProperty("hero", True)
+        # Neo (v2.1): heading_level lets a card's own title sit below the
+        # content's headline (e.g. Monitor "Current Study" < h1 case title).
+        # Default "h1" keeps every existing caller/test visually identical.
+        self._heading_level = heading_level
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(theme.CARD_MARGIN, theme.CARD_MARGIN,
@@ -46,7 +54,7 @@ class Card(QFrame):
             titles.setSpacing(0)
             if title:
                 self.title_lbl = QLabel(title)
-                self.title_lbl.setProperty("h1", True)
+                self.title_lbl.setProperty(self._heading_level, True)
                 titles.addWidget(self.title_lbl)
             if caption:
                 self.caption_lbl = QLabel(caption)

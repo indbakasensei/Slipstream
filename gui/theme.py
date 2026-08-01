@@ -112,6 +112,16 @@ MIN_CONTROL_HEIGHT = 28
 MIN_CARD_HEIGHT = 88
 
 # ===========================================================================
+# NEO UI FOUNDATION — sidebar / toolbar / brand / status tokens (additive;
+# every name below is new in v2.1; nothing above was changed)
+# ===========================================================================
+NAV_ITEM_HEIGHT = 34      # one navigation row (icon + label) hit target
+NAV_RAIL_WIDTH = 3        # accent rail on the active navigation item
+BRAND_HEIGHT = 64         # sidebar brand header (wordmark + tagline)
+PAGE_HEADER_HEIGHT = 54   # workspace header above the center stack
+TOOLBAR_ICON_SIZE = 18    # standard icon canvas for toolbar / nav
+
+# ===========================================================================
 # STATUS + SERIES colours (shared by queue, chips, pipeline, cards, plots)
 # ===========================================================================
 STATUS_COLORS = {
@@ -320,6 +330,70 @@ QLabel[hint="true"] {{ color: {TEXT_DIM}; font-size: {FONT_SIZE_SMALL}px; }}
 QLabel[stat="true"] {{ font-size: {FONT_SIZE_STAT}px; font-weight: 700; }}
 QLabel[metric="true"] {{ font-size: {FONT_SIZE_H1}px; font-weight: 700;
                          font-family: {FONT_MONO}; }}
+
+/* ====================================================================== */
+/* NEO UI FOUNDATION — sidebar / workspace / toolbar / status (v2.1.0)    */
+/* ====================================================================== */
+
+/* ---- brand header ----------------------------------------------------- */
+QWidget[brand="true"] {{ background: {BG_PANEL};
+                        border-bottom: 1px solid {BORDER}; }}
+QLabel[brandName="true"] {{ font-size: 14px; font-weight: 700;
+                           letter-spacing: 2px; color: {TEXT}; }}
+QLabel[brandTagline="true"] {{ font-size: {FONT_SIZE_CAPTION}px;
+                              color: {TEXT_FAINT}; letter-spacing: 0.8px; }}
+QLabel[brandVersion="true"] {{ font-size: {FONT_SIZE_CAPTION}px;
+                             color: {TEXT_DIM}; background: {BG_FIELD};
+                             border: 1px solid {BORDER};
+                             border-radius: {RADIUS_SM}px; padding: 1px 8px; }}
+
+/* ---- navigation items -------------------------------------------------- */
+QPushButton[navItem="true"] {{ background: transparent; border: none;
+    border-left: {NAV_RAIL_WIDTH}px solid transparent;
+    border-radius: {RADIUS_SM}px; text-align: left;
+    padding: {SPACE_SM}px {SPACE_MD}px; color: {TEXT_DIM};
+    font-size: {FONT_SIZE_BODY}px; }}
+QPushButton[navItem="true"]:hover {{ background: {BG_HOVER}; color: {TEXT}; }}
+QPushButton[navItem="true"]:pressed {{ background: {BG_PRESSED}; }}
+QPushButton[navItem="true"][active="true"] {{ background: {ACCENT_DIM};
+    color: {TEXT}; border-left-color: {ACCENT}; font-weight: 600; }}
+QPushButton[navItem="true"][active="true"]:hover {{ background: {ACCENT_DIM};
+    color: {TEXT}; }}
+
+/* ---- collapsible section headers (uppercase caption chrome) ------------ */
+QPushButton[sectionHeader="true"] {{ background: transparent; border: none;
+    text-align: left; color: {TEXT_FAINT}; font-size: {FONT_SIZE_CAPTION}px;
+    font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase;
+    padding: {SPACE_XS}px {SPACE_MD}px; }}
+QPushButton[sectionHeader="true"]:hover {{ color: {TEXT_DIM}; }}
+
+/* ---- workspace header --------------------------------------------------- */
+QWidget[pageHeader="true"] {{ background: {BG_WINDOW};
+                             border-bottom: 1px solid {BORDER}; }}
+
+/* ---- toolbar grouping ---------------------------------------------------- */
+QToolBar QToolButton {{ font-weight: 600; padding: {SPACE_XS}px {SPACE_MD}px; }}
+QToolButton[toolbarAccent="true"] {{ background: {ACCENT}; color: {ACCENT_TEXT};
+    border: none; }}
+QToolButton[toolbarAccent="true"]:hover {{ background: {ACCENT_HOVER}; }}
+QToolButton[toolbarAccent="true"]:disabled {{ background: {ACCENT_DIM};
+    color: {TEXT_DIM}; }}
+QToolButton[toolbarWarning="true"] {{ color: {WARNING}; }}
+QLabel[toolbarGroup="true"] {{ color: {TEXT_FAINT};
+    font-size: {FONT_SIZE_CAPTION}px; font-weight: 700; letter-spacing: 1px;
+    padding: 0 {SPACE_SM}px; }}
+QFrame[toolGroup="true"] {{ background: {BG_FIELD};
+    border: 1px solid {BORDER}; border-radius: {RADIUS_SM}px; }}
+
+/* ---- status bar ----------------------------------------------------------- */
+QLabel[statusInfo="true"] {{ color: {TEXT_DIM}; font-size: {FONT_SIZE_SMALL}px;
+    padding: 2px 10px; }}
+QLabel[statusSep="true"] {{ color: {BORDER_STRONG}; }}
+
+/* ---- empty states --------------------------------------------------------- */
+QLabel[emptyTitle="true"] {{ font-size: {FONT_SIZE_DISPLAY}px;
+    font-weight: 700; color: {TEXT}; }}
+QLabel[emptyHint="true"] {{ color: {TEXT_DIM}; font-size: {FONT_SIZE_BODY}px; }}
 """
 
 
