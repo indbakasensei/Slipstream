@@ -1,45 +1,142 @@
 """Project dashboard — the at-a-glance answer to "how is my study doing?".
 
-GUI Modernization (v1.0.0-rc2): redesigned into clearly separated,
-generously spaced sections (status cards → pipeline → chart → activity/
-overview → study summary), each in its own card, scrolling as a whole
-rather than compressing at smaller window sizes. The public surface
-(``cards``, ``progress``, ``pipeline``, ``pipe_lbl``, ``chart``,
-``recent``, ``study_summary``, ``refresh()``, ``handle_event()``,
-``push_recent()``, ``set_study_summary()``) is unchanged — every existing
-caller and test keeps working exactly as before.
+Dashboard Revolution (v2.2, Milestone 2): the dashboard is rebuilt as a
+professional engineering screen. A Hero header pins the project identity
+(project, template, status, mock/real badge, solver, quick actions); a
+responsive KPI row (status counts + success rate + elapsed time) sits above a
+rich Study Overview / Execution Pipeline pair; the results chart becomes the
+centerpiece; a premium activity feed and a Quick Actions panel replace the
+flat list and toolbar dependence; and the Study Summary closes the page.
+
+The public surface is **unchanged** — every existing caller and test keeps
+working exactly as before: ``title``, ``subtitle``, ``cards``, ``progress``,
+``pipeline``, ``pipe_lbl``, ``chart``, ``recent``, ``study_overview``,
+``study_summary``, ``run_btn``, ``refresh()``, ``handle_event()``,
+``push_recent()``, ``set_study_summary()``, ``runAllRequested``,
+``openProjectRequested``. The preserved attributes continue to point at the
+*same widget objects* — new presentation shells wrap them rather than replace
+them. Purely presentational: no backend, no business logic.
 """
 
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from typing import Optional
 
 import pyqtgraph as pg
-from PySide6.QtCore import Signal
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QListWidget,
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLayout, QListWidget,
                                QProgressBar, QPushButton, QScrollArea,
-                               QSizePolicy, QVBoxLayout, QWidget)
+                               QSizePolicy, QStackedLayout, QVBoxLayout,
+                               QWidget)
 
 from cfdauto.events import Event
 from cfdauto.study_analytics import StudySummary
 from gui import theme
 from gui.panels.charts_panel import series_groups
 from gui.state import AppState
-from gui.widgets import (PipelineWidget, SectionHeader, StatCard,
-                         StudyOverviewTable, StudySummaryPanel)
+from gui.widgets import (ActivityFeed, EmptyState, HeroHeader, KpiCard,
+                         PipelineWidget, QuickActionsPanel, StudyOverviewTable,
+                         StudySummaryPanel)
 
 
-def _card(inner: QWidget) -> QFrame:
-    """A section container: card background, standard radius/margin."""
+class _FlowLayout(QLayout):
+    """A minimal flow layout: children wrap onto new rows when the available
+    width runs out, so the KPI row (and dashboard column pairs) reflow
+    naturally from wide to narrow windows with no clipping. Classic Qt recipe,
+    trimmed to what this screen needs."""
+
+    def __init__(self, parent=None, margin: int = 0, hspacing: int = -1,
+                 vspacing: int = -1, spacing: int = -1):
+        super().__init__(parent)
+        self._items = []
+        self._hspacing = hspacing
+        self._vspacing = vspacing
+        if spacing >= 0:
+            self.setSpacing(spacing)
+        self.setContentsMargins(margin, margin, margin, margin)
+
+    # ------------------------------------------------------------------ #
+    def addItem(self, item):  # noqa: D401
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index):
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index):
+        if 0 <= index < len(self._items):
+            return self._items.pop(index)
+        return None
+
+    def expandingDirections(self):
+        return Qt.Orientations(Qt.Orientation(0))
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self._do(QRect(0, 0, width, 0), True)
+
+    def setGeometry(self, rect) -> None:
+        super().setGeometry(rect)
+        self._do(rect, False)
+
+    def sizeHint(self) -> QSize:
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        m = self.contentsMargins()
+        size += QSize(m.left() + m.right(), m.top() + m.bottom())
+        return size
+
+    def _hsp(self) -> int:
+        return self._hspacing if self._hspacing >= 0 else self.spacing()
+
+    def _vsp(self) -> int:
+        return self._vspacing if self._vspacing >= 0 else self.spacing()
+
+    def _do(self, rect: QRect, test_only: bool) -> int:
+        m = self.contentsMargins()
+        eff = QRect(rect.x() + m.left(), rect.y() + m.top(),
+                    rect.width() - m.left() - m.right(),
+                    rect.height() - m.top() - m.bottom())
+        x, y, line_height = eff.x(), eff.y(), 0
+        for item in self._items:
+            hint = item.sizeHint()
+            if x + hint.width() > eff.right() + 1 and line_height > 0:
+                x = eff.x()
+                y = y + line_height + self._vsp()
+                line_height = 0
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+            x += hint.width() + self._hsp()
+            line_height = max(line_height, hint.height())
+        return (y + line_height - eff.y() + m.top() + m.bottom())
+
+
+def _section(title: str, caption: str = ""):
+    """A titled dashboard section card; returns (frame, body_layout)."""
     frame = QFrame()
-    frame.setProperty("card", True)
+    frame.setProperty("dashSection", True)
     lay = QVBoxLayout(frame)
     lay.setContentsMargins(theme.CARD_MARGIN, theme.CARD_MARGIN,
                            theme.CARD_MARGIN, theme.CARD_MARGIN)
-    lay.setSpacing(theme.SPACE_SM)
-    lay.addWidget(inner)
-    return frame
+    lay.setSpacing(theme.SPACE_MD)
+    t = QLabel(title)
+    t.setProperty("dashSectionTitle", True)
+    lay.addWidget(t)
+    if caption:
+        cap = QLabel(caption)
+        cap.setProperty("dashSectionHint", True)
+        lay.addWidget(cap)
+    return frame, lay
 
 
 class DashboardPanel(QWidget):
@@ -49,116 +146,140 @@ class DashboardPanel(QWidget):
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
         self.state = state
+        self._run_started_at: Optional[float] = None
 
-        # -- header (pinned above the scroll area) -------------------------
-        self.title = QLabel("No project loaded")
-        self.title.setProperty("h1", True)
-        self.subtitle = QLabel("File ▸ Open Project…  to load a config.yaml")
-        self.subtitle.setProperty("hint", True)
+        # -- hero header (pinned above the scroll area) --------------------
+        self.hero_header = HeroHeader()
+        self.hero_header.runClicked.connect(self.runAllRequested.emit)
+        self.hero_header.openProjectClicked.connect(
+            self.openProjectRequested.emit)
+        self.hero_header.report_btn.setToolTip("Not wired yet — part of the "
+                                               "report milestone.")
+        # Preserved aliases — the hero owns these widgets now.
+        self.title: QLabel = self.hero_header.project_lbl
+        self.subtitle: QLabel = self.hero_header.meta_lbl
+        self.run_btn: QPushButton = self.hero_header.run_btn
 
-        open_btn = QPushButton("Open Project…")
-        open_btn.clicked.connect(self.openProjectRequested.emit)
-        self.run_btn = QPushButton("▶ Run All")
-        self.run_btn.setProperty("accent", True)
-        self.run_btn.clicked.connect(self.runAllRequested.emit)
-        head = QHBoxLayout()
-        head.setSpacing(theme.SPACE_SM)
-        hv = QVBoxLayout(); hv.addWidget(self.title); hv.addWidget(self.subtitle)
-        head.addLayout(hv, 1)
-        head.addWidget(open_btn)
-        head.addWidget(self.run_btn)
-
-        # -- status cards ---------------------------------------------------
+        # -- KPI row --------------------------------------------------------
         self.cards = {
-            "PENDING": StatCard("Pending", theme.STATUS_COLORS["PENDING"]),
-            "RUNNING": StatCard("Running", theme.STATUS_COLORS["RUNNING"]),
-            "DONE": StatCard("Done", theme.STATUS_COLORS["DONE"]),
-            "FAILED": StatCard("Failed", theme.STATUS_COLORS["FAILED"]),
+            "PENDING": KpiCard("Pending", theme.STATUS_COLORS["PENDING"],
+                               icon="clock"),
+            "RUNNING": KpiCard("Running", theme.STATUS_COLORS["RUNNING"],
+                               icon="run"),
+            "DONE": KpiCard("Done", theme.STATUS_COLORS["DONE"], icon="check"),
+            "FAILED": KpiCard("Failed", theme.STATUS_COLORS["FAILED"],
+                              icon="alert"),
         }
-        cards_row = QHBoxLayout()
-        cards_row.setSpacing(theme.SPACE_MD)
-        for c in self.cards.values():
-            cards_row.addWidget(c)
-        cards_widget = QWidget(); cards_widget.setLayout(cards_row)
+        self.rate_card = KpiCard("Success Rate", theme.SUCCESS, icon="results")
+        self.time_card = KpiCard("Elapsed Time", theme.INFO, icon="clock")
+        kpi_flow = _FlowLayout(spacing=theme.SPACE_MD)
+        for card in [self.cards["PENDING"], self.cards["RUNNING"],
+                     self.cards["DONE"], self.cards["FAILED"],
+                     self.rate_card, self.time_card]:
+            card.setMinimumWidth(160)
+            kpi_flow.addWidget(card)
+        kpi_row = QWidget()
+        kpi_row.setLayout(kpi_flow)
 
         # -- pipeline (full width, non-compact — more breathing room) ------
-        self.progress = QProgressBar(); self.progress.setRange(0, 100)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
         self.pipeline = PipelineWidget(compact=False)
         self.pipe_lbl = QLabel("Pipeline idle")
         self.pipe_lbl.setProperty("hint", True)
-        pipeline_body = QWidget()
-        pv = QVBoxLayout(pipeline_body)
-        pv.setContentsMargins(0, 0, 0, 0)
-        pv.setSpacing(theme.SPACE_SM)
-        pv.addWidget(self.pipe_lbl)
-        pv.addWidget(self.progress)
-        pv.addWidget(self.pipeline)
-        pipeline_section = QVBoxLayout()
-        pipeline_section.setSpacing(theme.SPACE_SM)
-        pipeline_section.addWidget(SectionHeader("Pipeline", icon="⚙"))
-        pipeline_section.addWidget(pipeline_body)
-        pipeline_widget = QWidget(); pipeline_widget.setLayout(pipeline_section)
+        pipeline_frame, pipeline_lay = _section(
+            "Execution Pipeline",
+            caption=f"Strategy: {state.context.template.execution_strategy_id or '—'}")
+        pipeline_lay.addWidget(self.pipe_lbl)
+        pipeline_lay.addWidget(self.progress)
+        pipeline_lay.addWidget(self.pipeline)
+        pipeline_frame.setMinimumWidth(360)
 
-        # -- chart (the largest section on the page) ------------------------
-        # Axes are labelled from the active study's input metadata — no
-        # hardcoded AOA/Velocity — so the dashboard chart reads correctly for
-        # any template (identical to before for External Aerodynamics).
+        # -- study overview (computed from AppState.df; already a card) -----
+        self.study_overview = StudyOverviewTable(state)
+        self.study_overview.setMinimumWidth(400)
+
+        # -- chart (the visual centrepiece of the page) ----------------------
         self.chart = pg.PlotWidget()
         self.chart.showGrid(x=True, y=True, alpha=0.25)
         self.chart.addLegend(offset=(-10, 10))
         self.chart.setLabel("left", "L/D")
-        self._apply_chart_axes()
-        self.chart.setMinimumHeight(360)
+        self.chart.setMinimumHeight(theme.CHART_MIN_HEIGHT)
         self.chart.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        chart_section = QVBoxLayout()
-        chart_section.setSpacing(theme.SPACE_SM)
-        chart_section.addWidget(SectionHeader("Results Chart", icon="📈"))
-        chart_section.addWidget(self.chart, 1)
-        chart_widget = QWidget(); chart_widget.setLayout(chart_section)
+        self._apply_chart_axes()
+        chart_frame, chart_lay = _section("Results Chart",
+                                          caption="Live from the dataset — "
+                                                  "updated on every event")
+        chart_lay.addWidget(self.chart, 1)
 
-        # -- recent activity --------------------------------------------------
-        self.recent = QListWidget()
-        self.recent.setAlternatingRowColors(True)
-        self.recent.setMinimumHeight(160)
-        activity_section = QVBoxLayout()
-        activity_section.setSpacing(theme.SPACE_SM)
-        activity_section.addWidget(SectionHeader("Recent Activity", icon="🕘"))
-        activity_section.addWidget(self.recent, 1)
-        activity_widget = QWidget(); activity_widget.setLayout(activity_section)
+        # -- recent activity (rich feed) -------------------------------------
+        self.activity_feed = ActivityFeed()
+        self.recent: QListWidget = self.activity_feed.list
+        activity_frame, activity_lay = _section("Recent Activity")
+        activity_lay.addWidget(self.activity_feed, 1)
+        activity_frame.setMinimumWidth(340)
 
-        # -- study overview (Option A: computed from AppState.df) -----------
-        self.study_overview = StudyOverviewTable(state)
-
-        activity_row = QHBoxLayout()
-        activity_row.setSpacing(theme.SPACE_MD)
-        activity_row.addWidget(_card(activity_widget), 2)
-        activity_row.addWidget(self.study_overview, 3)
-        activity_row_widget = QWidget(); activity_row_widget.setLayout(activity_row)
+        # -- quick actions (reduce toolbar dependence) -----------------------
+        self.quick_actions = QuickActionsPanel()
+        self.quick_actions.actionTriggered.connect(self._quick_action)
+        self.quick_actions.setMinimumWidth(300)
 
         # -- study summary (Orchestrator.current_study_summary; unchanged) --
         self.study_summary = StudySummaryPanel()
+        summary_frame, summary_lay = _section("Study Summary",
+                                              caption="Engine analytics from "
+                                                      "the last batch")
+        summary_lay.addWidget(self.study_summary)
 
-        # -- assemble: header pinned, everything else scrolls --------------
+        # -- assemble content (everything scrolls) ---------------------------
         body = QWidget()
         body_lay = QVBoxLayout(body)
         body_lay.setContentsMargins(0, 0, 0, 0)
         body_lay.setSpacing(theme.SPACE_LG)
-        body_lay.addWidget(_card(cards_widget))
-        body_lay.addWidget(_card(pipeline_widget))
-        body_lay.addWidget(_card(chart_widget), 1)
-        body_lay.addWidget(activity_row_widget)
-        body_lay.addWidget(_card(self.study_summary))
+
+        body_lay.addWidget(kpi_row)
+
+        pair1 = _FlowLayout(spacing=theme.SPACE_MD)
+        pair1.addWidget(self.study_overview)
+        pair1.addWidget(pipeline_frame)
+        pair1_w = QWidget(); pair1_w.setLayout(pair1)
+        body_lay.addWidget(pair1_w)
+
+        body_lay.addWidget(chart_frame, 1)
+
+        pair2 = _FlowLayout(spacing=theme.SPACE_MD)
+        pair2.addWidget(activity_frame)
+        pair2.addWidget(self.quick_actions)
+        pair2_w = QWidget(); pair2_w.setLayout(pair2)
+        body_lay.addWidget(pair2_w)
+
+        body_lay.addWidget(summary_frame)
+
+        # -- empty state (no project loaded) ----------------------------------
+        self._empty = EmptyState(
+            "No Project Loaded",
+            "Open or create a project to begin.\nThe dashboard fills in as "
+            "cases complete.",
+            action_text="Open Project…")
+        self._empty.actionClicked.connect(self.openProjectRequested.emit)
+
+        self._stack = QStackedLayout()
+        self._stack.addWidget(self._empty)          # index 0
+        self._stack.addWidget(body)                 # index 1
+
+        stack_host = QWidget()
+        stack_host.setLayout(self._stack)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setWidget(body)
+        scroll.setWidget(stack_host)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(theme.SPACE_LG, theme.SPACE_MD,
                                  theme.SPACE_LG, theme.SPACE_MD)
         outer.setSpacing(theme.SPACE_MD)
-        outer.addLayout(head)
+        outer.addWidget(self.hero_header)
         outer.addWidget(scroll, 1)
 
         state.datasetChanged.connect(self.refresh)
@@ -167,13 +288,24 @@ class DashboardPanel(QWidget):
             lambda r: self.run_btn.setEnabled(not r))
 
     # ------------------------------------------------------------------ #
+    def _quick_action(self, aid: str) -> None:
+        """Route a Quick Actions panel button to the matching signal."""
+        if aid == "open":
+            self.openProjectRequested.emit()
+        elif aid in ("run", "resume"):
+            self.runAllRequested.emit()
+        # report / export / validate / config are placeholders — their
+        # milestones arrive in later iterations.
+
     def _project_loaded(self) -> None:
         st = self.state
-        self.title.setText(st.config_path.stem)
-        mode = st.cfg.fluent.aoa_method
-        self.subtitle.setText(
-            f"{st.config_path}   ·   AOA method: {mode}   ·   "
-            f"schedule: {st.cfg.excel.file}")
+        tpl = st.context.template
+        name = st.config_path.stem
+        self.hero_header.set_project(name, tpl.name, tpl.description)
+        self.hero_header.set_mock(st.effective_mock)
+        self.hero_header.set_solver(tpl.default_solver)
+        self.hero_header.set_status(st.running, None)
+        self._stack.setCurrentIndex(1)
         self._apply_chart_axes()
         self.refresh()
 
@@ -192,6 +324,7 @@ class DashboardPanel(QWidget):
         self.chart.setTitle(f"L/D vs {px} (by {sx})")
         self.chart.setLabel("bottom", px_label)
 
+    # ------------------------------------------------------------------ #
     def refresh(self) -> None:
         df = self.state.df
         counts = df["Status"].value_counts() if len(df) else {}
@@ -201,14 +334,27 @@ class DashboardPanel(QWidget):
         done = int(counts.get("DONE", 0))
         self.progress.setValue(int(100 * done / total) if total else 0)
         self.progress.setFormat(f"{done}/{total} completed  (%p%)")
+        # bonus KPIs
+        self.rate_card.set_value(f"{100.0 * done / total:.0f}%" if total else "–")
+        if self._run_started_at is not None:
+            secs = max(0, int(time.time() - self._run_started_at))
+            self.time_card.set_value(f"{secs // 60}m {secs % 60:02d}s")
+        else:
+            self.time_card.set_value("–")
+        # hero status line
+        self.hero_header.set_status(self.state.running,
+                                    int(100 * done / total) if total else None)
         self._redraw_chart()
 
     def _redraw_chart(self) -> None:
         for item in list(self.chart.listDataItems()):
             self.chart.removeItem(item)
+        df = self.state.df
+        if not len(df) or "Status" not in df.columns:
+            return                       # nothing to plot yet (empty state)
         px, sx, _ = self._axis_inputs()
         for i, (label, xs, ys, _ids) in enumerate(
-                series_groups(self.state.df, px, "L/D", sx)):
+                series_groups(df, px, "L/D", sx)):
             col = theme.CHART_SERIES[i % len(theme.CHART_SERIES)]
             self.chart.plot(xs, ys, pen=pg.mkPen(col, width=1.6), symbol="o",
                             symbolSize=6, symbolBrush=col, symbolPen=None,
@@ -218,31 +364,33 @@ class DashboardPanel(QWidget):
     def handle_event(self, evt: Event) -> None:
         t, d = evt.type, evt.data
         if t == "case.started":
+            if self._run_started_at is None:
+                self._run_started_at = time.time()
             self.pipeline.reset()
             self.pipe_lbl.setText(
                 f'Running {d["case_id"]}  (case {d["index"]}/{d["total"]})')
-            self.push_recent(f'▶ {d["case_id"]} started')
+            self.push_recent(f'{d["case_id"]} started', kind="started")
         elif t == "stage":
             self.pipeline.set_stage(d["stage"], d["state"])
         elif t == "case.done":
             r = d.get("result", {})
             self.push_recent(
-                f'✓ {d["case_id"]}  CL={_g(r.get("cl"))} CD={_g(r.get("cd"))}')
+                f'{d["case_id"]}  CL={_g(r.get("cl"))} '
+                f'CD={_g(r.get("cd"))}', kind="done")
         elif t == "case.failed":
-            self.push_recent(f'✗ {d["case_id"]}  {d.get("error", "")[:60]}')
+            self.push_recent(f'{d["case_id"]}  {d.get("error", "")[:60]}',
+                             kind="failed")
         elif t == "batch.finished":
             self.pipe_lbl.setText("Pipeline idle")
             self.push_recent(
-                f'Batch finished — {d.get("ok", 0)} ok, {d.get("failed", 0)} failed')
+                f'Batch finished — {d.get("ok", 0)} ok, '
+                f'{d.get("failed", 0)} failed', kind="info")
 
-    def push_recent(self, text: str) -> None:
+    def push_recent(self, text: str, kind: str = "info") -> None:
         """Prepend one activity-feed line. The timestamp is generated here,
         at display time, purely for presentation — no backend logging is
         touched or read."""
-        stamped = f"{datetime.now().strftime('%H:%M:%S')}   {text}"
-        self.recent.insertItem(0, stamped)
-        while self.recent.count() > 8:
-            self.recent.takeItem(self.recent.count() - 1)
+        self.activity_feed.push(text, kind=kind)
 
     # -- Study Summary -------------------------------------------
     def set_study_summary(self, summary: Optional[StudySummary]) -> None:

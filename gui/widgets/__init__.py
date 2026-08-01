@@ -15,3 +15,7 @@ from .workspace_header import WorkspaceHeader  # noqa: F401
 from .toolbar_section import ToolbarSection  # noqa: F401
 from .badge_delegate import StatusBadgeDelegate  # noqa: F401
 from .empty_state import EmptyState       # noqa: F401
+from .kpi_card import KpiCard             # noqa: F401
+from .hero_header import HeroHeader       # noqa: F401
+from .activity_feed import ActivityFeed   # noqa: F401
+from .quick_actions import QuickActionsPanel  # noqa: F401

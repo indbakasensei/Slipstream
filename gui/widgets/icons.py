@@ -138,6 +138,35 @@ def _stop(p: QPainter, c: QColor, s: float) -> None:
     p.drawRoundedRect(QRectF(6 * s, 6 * s, 12 * s, 12 * s), 2.5 * s, 2.5 * s)
 
 
+def _check(p: QPainter, c: QColor, s: float) -> None:
+    _stroke(p, c, s)
+    p.drawEllipse(QPointF(12 * s, 12 * s), 8 * s, 8 * s)
+    path = QPainterPath(QPointF(8.5 * s, 12.6 * s))
+    path.lineTo(11 * s, 15 * s)
+    path.lineTo(15.8 * s, 9.4 * s)
+    p.drawPath(path)
+
+
+def _alert(p: QPainter, c: QColor, s: float) -> None:
+    _stroke(p, c, s)
+    path = QPainterPath()
+    path.moveTo(12 * s, 3.5 * s)
+    path.lineTo(21 * s, 19.5 * s)
+    path.lineTo(3 * s, 19.5 * s)
+    path.closeSubpath()
+    p.drawPath(path)
+    p.drawLine(12 * s, 8.5 * s, 12 * s, 14 * s)      # stem
+    _fill(p, c)
+    p.drawEllipse(QPointF(12 * s, 16.8 * s), 1.2 * s, 1.2 * s)  # exclamation dot
+
+
+def _clock(p: QPainter, c: QColor, s: float) -> None:
+    _stroke(p, c, s)
+    p.drawEllipse(QPointF(12 * s, 12 * s), 8.5 * s, 8.5 * s)
+    p.drawLine(12 * s, 12 * s, 12 * s, 7 * s)        # minute hand (up)
+    p.drawLine(12 * s, 12 * s, 16 * s, 13.5 * s)     # hour hand
+
+
 def _mock(p: QPainter, c: QColor, s: float) -> None:
     _stroke(p, c, s)
     p.drawLine(10 * s, 4.5 * s, 14 * s, 4.5 * s)      # neck rim
@@ -164,7 +193,11 @@ _ICONS: Dict[str, Callable[[QPainter, QColor, float], None]] = {
     "run": _run,
     "stop": _stop,
     "mock": _mock,
+    "check": _check,
+    "alert": _alert,
+    "clock": _clock,
 }
+
 
 
 def icon_names() -> List[str]:

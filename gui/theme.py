@@ -122,6 +122,19 @@ PAGE_HEADER_HEIGHT = 54   # workspace header above the center stack
 TOOLBAR_ICON_SIZE = 18    # standard icon canvas for toolbar / nav
 
 # ===========================================================================
+# DASHBOARD REVOLUTION — hero / KPI / activity / quick-action tokens (v2.2;
+# additive; no existing token was changed)
+# ===========================================================================
+HERO_FONT_SIZE = 28            # project name in hero header
+HERO_TEMPLATE_SIZE = 13        # template name / subtitle in hero header
+KPI_VALUE_FONT_SIZE = 32       # big number on KPI card
+KPI_ICON_SIZE = 20             # icon canvas in KPI card
+KPI_ACCENT_HEIGHT = 3          # colored accent bar at top of KPI card
+CHART_MIN_HEIGHT = 420         # dashboard chart minimum height
+FEED_ROW_HEIGHT = 36           # activity feed row height
+QUICK_ACTION_SIZE = 44         # quick action button/icon area
+
+# ===========================================================================
 # STATUS + SERIES colours (shared by queue, chips, pipeline, cards, plots)
 # ===========================================================================
 STATUS_COLORS = {
@@ -394,6 +407,45 @@ QLabel[statusSep="true"] {{ color: {BORDER_STRONG}; }}
 QLabel[emptyTitle="true"] {{ font-size: {FONT_SIZE_DISPLAY}px;
     font-weight: 700; color: {TEXT}; }}
 QLabel[emptyHint="true"] {{ color: {TEXT_DIM}; font-size: {FONT_SIZE_BODY}px; }}
+
+/* ---- dashboard revolution: hero header ------------------------------------ */
+QFrame[hero="true"] {{ background: {BG_ELEVATED}; border: 1px solid {BORDER};
+    border-radius: {RADIUS_LG}px; }}
+QLabel[heroTitle="true"] {{ font-size: {HERO_FONT_SIZE}px; font-weight: 700;
+    color: {TEXT}; }}
+QLabel[heroMeta="true"] {{ color: {TEXT_DIM}; font-size: {HERO_TEMPLATE_SIZE}px;
+    font-weight: 600; letter-spacing: 0.4px; }}
+QLabel[heroDesc="true"] {{ color: {TEXT_DIM}; font-size: {FONT_SIZE_BODY}px; }}
+QLabel[mockBadge="true"] {{ font-size: {FONT_SIZE_SMALL}px; font-weight: 700;
+    letter-spacing: 1px; padding: 3px 10px; border-radius: 9px;
+    background: {ACCENT_DIM}; color: {ACCENT}; }}
+QLabel[mockBadgeReal="true"] {{ font-size: {FONT_SIZE_SMALL}px; font-weight: 700;
+    letter-spacing: 1px; padding: 3px 10px; border-radius: 9px;
+    background: {ACCENT_DIM}; color: {ACCENT}; }}
+
+/* ---- dashboard revolution: KPI cards -------------------------------------- */
+QFrame[kpiCard="true"] {{ background: {BG_CARD}; border: 1px solid {BORDER};
+    border-radius: {RADIUS_LG}px; }}
+QFrame[kpiCard="true"]:hover {{ border: 1px solid {BORDER_STRONG}; }}
+QLabel[kpiValue="true"] {{ font-size: {KPI_VALUE_FONT_SIZE}px; font-weight: 700;
+    color: {TEXT}; }}
+QLabel[kpiCaption="true"] {{ color: {TEXT_DIM}; font-size: {FONT_SIZE_SMALL}px;
+    letter-spacing: 0.5px; }}
+
+/* ---- dashboard revolution: section cards ----------------------------------- */
+QFrame[dashSection="true"] {{ background: {BG_CARD}; border: 1px solid {BORDER};
+    border-radius: {RADIUS_LG}px; }}
+QLabel[dashSectionTitle="true"] {{ color: {TEXT}; font-size: {FONT_SIZE_BODY}px;
+    font-weight: 700; }}
+QLabel[dashSectionHint="true"] {{ color: {TEXT_FAINT}; font-size: {FONT_SIZE_SMALL}px; }}
+
+/* ---- dashboard revolution: quick actions ----------------------------------- */
+QPushButton[quickAction="true"] {{ background: {BG_FIELD}; border: 1px solid {BORDER};
+    border-radius: {RADIUS_SM}px; color: {TEXT}; font-weight: 600;
+    padding: {SPACE_SM}px; text-align: left; }}
+QPushButton[quickAction="true"]:hover {{ background: {BG_HOVER};
+    border: 1px solid {ACCENT}; }}
+QPushButton[quickAction="true"]:pressed {{ background: {BG_PRESSED}; }}
 """
 
 
