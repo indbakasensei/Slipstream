@@ -49,6 +49,7 @@ from cfdauto.exceptions import CFDAutoError
 from gui import theme
 from gui.event_bridge import EngineWorker
 from gui.panels.charts_panel import ChartsPanel
+from gui.panels.console import ConsolePanel
 from gui.panels.dashboard import DashboardPanel
 from gui.panels.explorer import ExplorerPanel
 from gui.panels.images_panel import ImagesPanel
@@ -86,6 +87,7 @@ class MainWindow(QMainWindow):
         self.params = ParamsPanel(self.state)
         self.monitor = MonitorPanel(self.state.context)
         self.log_panel = LogConsolePanel()
+        self.console = ConsolePanel()
         self.stats = StatsPanel(self.state)
         self.explorer = ExplorerPanel(self.state)
 
@@ -275,12 +277,7 @@ class MainWindow(QMainWindow):
         lg = self._dock("Log", self.log_panel, Qt.BottomDockWidgetArea)
         self._dock("Statistics", self.stats, Qt.BottomDockWidgetArea,
                   tab_with="Log")
-        console_placeholder = QLabel(
-            "Console — coming soon.\n\n"
-            "A future release may add an embedded command console here.")
-        console_placeholder.setAlignment(Qt.AlignCenter)
-        console_placeholder.setProperty("hint", True)
-        self._dock("Console", console_placeholder, Qt.BottomDockWidgetArea,
+        self._dock("Console", self.console, Qt.BottomDockWidgetArea,
                   tab_with="Log")
         lg.raise_()
 
@@ -409,7 +406,16 @@ class MainWindow(QMainWindow):
         self.explorer.imageActivated.connect(self._open_image)
         st.datasetChanged.connect(self._update_queue_label)
         st.runStateChanged.connect(self._run_state_changed)
+        st.runStateChanged.connect(self._console_run_state)
         st.projectLoaded.connect(self._sync_mock_ui)
+
+        # Console commands route to the same actions the toolbar/menus use.
+        self.console.openRequested.connect(self._open_dialog)
+        self.console.runRequested.connect(lambda: self.start_run())
+        self.console.stopRequested.connect(self._stop)
+        self.console.reloadRequested.connect(self._reload)
+        self.console.mockSet.connect(self._on_mock_toggled)
+        self.console.mockToggleRequested.connect(self._toggle_mock)
 
     # ------------------------------------------------------------------ #
     # Mock-mode UI sync (toolbar highlight + banner + window title)
@@ -418,6 +424,10 @@ class MainWindow(QMainWindow):
         """Fired when the user clicks the Mock toolbar/menu action."""
         self.state.mock_override = checked
         self._sync_mock_ui()
+
+    def _toggle_mock(self) -> None:
+        """Bare console ``mock`` command — flip the current effective mode."""
+        self._on_mock_toggled(not self.state.effective_mock)
 
     def _sync_mock_ui(self) -> None:
         """Reflect the effective mock state everywhere the user might look:
@@ -563,6 +573,11 @@ class MainWindow(QMainWindow):
             f"Batch finished: {ok} ok, {failed} failed{note}", 8000)
 
     # ------------------------------------------------------------------ #
+    def _console_run_state(self, running: bool) -> None:
+        """Print brief lifecycle status lines to the engineering console."""
+        self.console.append("batch running…" if running else "batch idle",
+                            logging.INFO)
+
     def _run_state_changed(self, running: bool) -> None:
         self.act_run.setEnabled(not running)
         self.act_open.setEnabled(not running)

@@ -522,6 +522,26 @@ QLabel[chartEmptyTitle="true"] {{ color: {TEXT_DIM}; font-size: {FONT_SIZE_H2}px
     font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; }}
 QLabel[chartEmptyHint="true"] {{ color: {TEXT_FAINT};
     font-size: {FONT_SIZE_BODY}px; }}
+
+/* ---- parameters engineering control panel ------------------------------- */
+QLabel[paramName="true"] {{ color: {TEXT}; font-weight: 600;
+    font-size: {FONT_SIZE_BODY}px; }}
+QLabel[paramMeta="true"] {{ color: {TEXT_FAINT};
+    font-size: {FONT_SIZE_CAPTION}px; text-transform: uppercase;
+    letter-spacing: 0.4px; }}
+
+/* ---- images engineering workspace ---------------------------------------- */
+QFrame[imageSurface="true"] {{ background: {BG_FIELD}; border: 1px solid {BORDER};
+    border-radius: {RADIUS}px; }}
+QLabel[imageMetaCaption="true"] {{ color: {TEXT_FAINT};
+    font-size: {FONT_SIZE_CAPTION}px; text-transform: uppercase;
+    letter-spacing: 0.5px; }}
+QLabel[imageMetaValue="true"] {{ color: {TEXT}; font-family: {FONT_MONO};
+    font-size: {FONT_SIZE_SMALL}px; }}
+QLabel[imageEmptyTitle="true"] {{ color: {TEXT_DIM}; font-size: {FONT_SIZE_H2}px;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; }}
+QLabel[imageEmptyHint="true"] {{ color: {TEXT_FAINT};
+    font-size: {FONT_SIZE_BODY}px; }}
 """
 
 

@@ -11,23 +11,44 @@ diameter, …) identically well, and a future template needs zero UI code.
 All mutations go through AppState (which enforces the run-lock and saves the
 workbook atomically). Editing is only offered for rows without results yet;
 DONE rows show read-only values with a hint.
+
+v2.2 Workspace Revolution: restyled as an engineering control panel — each
+parameter row shows its display name, allowed range, unit, and default from
+metadata, under a shared section header. Presentation only; the form layout,
+validation flow (the metadata-driven QMessageBox), and every public attribute
+are preserved.
 """
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
+from PySide6.QtCore import QSize
 from PySide6.QtWidgets import (QDoubleSpinBox, QFormLayout, QFrame, QGroupBox,
                                QHBoxLayout, QLabel, QMessageBox, QPushButton,
                                QScrollArea, QVBoxLayout, QWidget)
 
 from gui import param_render, theme
 from gui.state import AppState
+from gui.widgets import SectionHeader, make_icon
 
 _EDITABLE = {"PENDING", "FAILED", "SKIP", ""}
 
 # One (StudyParameter, spin) row of a generated form.
 _Row = Tuple[object, QDoubleSpinBox]
+
+
+def _meta_caption(pdef) -> str:
+    """Compact caption for a parameter row — unit · default, from metadata."""
+    parts: List[str] = []
+    if pdef.unit:
+        parts.append(pdef.unit)
+    if pdef.default_value is not None:
+        try:
+            parts.append(f"default {float(pdef.default_value):g}")
+        except (TypeError, ValueError):
+            pass
+    return "  ·  ".join(parts)
 
 
 class ParamsPanel(QWidget):
@@ -43,12 +64,17 @@ class ParamsPanel(QWidget):
         self.sel_lbl = QLabel("Select a row in the Queue")
         self.sel_lbl.setProperty("hint", True)
         self.form = QFormLayout()
+        self.form.setSpacing(theme.SPACE_MD)
+        self.form.setHorizontalSpacing(theme.SPACE_MD)
         self.form.addRow(self.sel_lbl)
         for sp in state.input_parameters():
-            spin = param_render.make_spin(sp.parameter, value=0.0)
-            self.form.addRow(param_render.label_for(sp.parameter), spin)
+            lbl, spin, field = self._build_row(sp, value=0.0)
+            self.form.addRow(lbl, field)
             self._sel_rows.append((sp, spin))
         self.apply_btn = QPushButton("Apply changes")
+        self.apply_btn.setIcon(make_icon("validate", theme.TEXT_DIM))
+        self.apply_btn.setIconSize(QSize(theme.TOOLBAR_ICON_SIZE,
+                                         theme.TOOLBAR_ICON_SIZE))
         self.skip_btn = QPushButton("Toggle SKIP")
         row = QHBoxLayout(); row.addWidget(self.apply_btn); row.addWidget(self.skip_btn)
         v = QVBoxLayout(self.sel_box); v.addLayout(self.form); v.addLayout(row)
@@ -56,12 +82,20 @@ class ParamsPanel(QWidget):
         # -- add-new ----------------------------------------------------- #
         self.add_box = QGroupBox("Add experiment")
         af = QFormLayout(self.add_box)
+        af.setSpacing(theme.SPACE_MD)
+        af.setHorizontalSpacing(theme.SPACE_MD)
         for sp in state.input_parameters():
-            spin = param_render.make_spin(sp.parameter)     # template default
-            af.addRow(param_render.label_for(sp.parameter), spin)
+            lbl, spin, field = self._build_row(sp)
+            af.addRow(lbl, field)
             self._add_rows.append((sp, spin))
         self.add_btn = QPushButton("＋ Add row")
+        self.add_btn.setIcon(make_icon("plus", theme.TEXT_DIM))
+        self.add_btn.setIconSize(QSize(theme.TOOLBAR_ICON_SIZE,
+                                       theme.TOOLBAR_ICON_SIZE))
         self.dup_btn = QPushButton("Duplicate selected")
+        self.dup_btn.setIcon(make_icon("duplicate", theme.TEXT_DIM))
+        self.dup_btn.setIconSize(QSize(theme.TOOLBAR_ICON_SIZE,
+                                       theme.TOOLBAR_ICON_SIZE))
         ar = QHBoxLayout(); ar.addWidget(self.add_btn); ar.addWidget(self.dup_btn)
         af.addRow(ar)
 
@@ -73,6 +107,11 @@ class ParamsPanel(QWidget):
         cv.setContentsMargins(theme.PANEL_MARGIN, theme.PANEL_MARGIN,
                               theme.PANEL_MARGIN, theme.PANEL_MARGIN)
         cv.setSpacing(theme.SECTION_SPACING)
+        cv.addWidget(SectionHeader("Parameters", icon_name="settings"))
+        hint = QLabel("Editors are generated from the active template "
+                      "metadata — units, ranges and defaults included.")
+        hint.setProperty("hint", True)
+        cv.addWidget(hint)
         cv.addWidget(self.sel_box)
         cv.addWidget(self.add_box)
         cv.addStretch(1)
@@ -98,6 +137,37 @@ class ParamsPanel(QWidget):
         state.datasetChanged.connect(lambda: self._load_row(state.selected_row))
 
     # ------------------------------------------------------------------ #
+    def _build_row(self, sp, value: Optional[float] = None
+                   ) -> Tuple[QWidget, QDoubleSpinBox, QWidget]:
+        """(label_widget, spin, field_widget) for one metadata-driven
+        parameter. The label column carries the display name + allowed range;
+        the field column carries the spin + unit/default caption. Every string
+        comes from the ParameterDefinition — nothing is hardcoded."""
+        pdef = sp.parameter
+        spin = param_render.make_spin(pdef, value=value)
+
+        name = QLabel(sp.display_name)
+        name.setProperty("paramName", True)
+        lbl = QWidget(); ll = QVBoxLayout(lbl)
+        ll.setContentsMargins(0, 0, 0, 0)
+        ll.setSpacing(theme.SPACE_XS)
+        ll.addWidget(name)
+        rng = QLabel(param_render.range_text(pdef))
+        rng.setProperty("paramMeta", True)
+        ll.addWidget(rng)
+        ll.addStretch(1)
+
+        field = QWidget(); fl = QVBoxLayout(field)
+        fl.setContentsMargins(0, 0, 0, 0)
+        fl.setSpacing(theme.SPACE_XS)
+        fl.addWidget(spin)
+        cap = _meta_caption(pdef)
+        if cap:
+            cap_lbl = QLabel(cap)
+            cap_lbl.setProperty("paramMeta", True)
+            fl.addWidget(cap_lbl)
+        return lbl, spin, field
+
     def _rebuild_wbp(self) -> None:
         for spin in self._wbp_spins.values():
             self.form.removeRow(spin)

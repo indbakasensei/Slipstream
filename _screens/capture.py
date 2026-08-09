@@ -1,8 +1,9 @@
-"""Visual verification capture for Neo UI v2 Milestone 1 (Workspace Revolution).
+"""Visual verification capture for Neo UI v2.2 (Workspace Revolution).
 
 Renders the redesigned shell offscreen and saves PNGs of every milestone
-surface: Startup (empty state), Dashboard, Sidebar, Queue, Monitor, Charts.
-Runs the mock engine so the panels are fully populated with real data.
+surface: Startup (empty state), Dashboard, Sidebar, Queue, Monitor, Charts,
+and the Stage 3 Parameters / Images / Console panels plus a full workspace
+shot. Runs the mock engine so the panels are fully populated with real data.
 
 Robustness (v2): every wait is bounded and *best-effort* — a predicate that
 never becomes true logs ``TIMEOUT`` and we capture whatever state we reached,
@@ -25,6 +26,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from PySide6.QtCore import Qt                         # noqa: E402
 from PySide6.QtWidgets import QApplication            # noqa: E402
 
 from gui.main_window import MainWindow                # noqa: E402
@@ -171,6 +173,44 @@ def main() -> int:
     _pump_until(app, lambda: win.charts.point_count() == 8,
                 timeout_s=30.0, label="charts 8 series v2.2")
     _save(win.charts, "charts_v22")
+
+    # v2.2 Stage 3: parameters dock close-up (with a real row loaded)
+    log("--- capture 9/12: parameters v2.2 ---")
+    win._docks["Parameters"].show()
+    win._docks["Parameters"].raise_()
+    win.state.select_case(1)
+    _pump_until(app, lambda: True, label="settle params")
+    win.params.resize(360, 700)
+    _save(win.params, "parameters_v22")
+
+    # v2.2 Stage 3: images workspace close-up
+    log("--- capture 10/12: images v2.2 ---")
+    win._navigate_to_page("images")
+    win.images.refresh()
+    _pump_until(app, lambda: True, label="settle images")
+    win.images.resize(820, 680)
+    _save(win.images, "images_v22")
+
+    # v2.2 Stage 3: console dock close-up (populated with a help command)
+    log("--- capture 11/12: console v2.2 ---")
+    win.console.input.setText("help")
+    win.console._run_command()
+    win.console.append("batch idle · 8 cases finished")
+    win._docks["Console"].show()
+    win._docks["Console"].raise_()
+    win.resizeDocks([win._docks["Console"]], [300], Qt.Vertical)
+    _pump_until(app, lambda: True, label="settle console")
+    _save(win.console, "console_v22")
+
+    # v2.2 Stage 3: full workspace — dashboard + queue + monitor + bottom dock
+    log("--- capture 12/12: workspace v2.2 ---")
+    win._navigate_to_page("dashboard")
+    win.dashboard.refresh()
+    win._docks["Monitor"].show()
+    win._docks["Monitor"].raise_()
+    win.resize(1480, 900)
+    _pump_until(app, lambda: True, label="settle workspace")
+    _save(win, "workspace_v22")
 
     log("capture complete")
     return 0

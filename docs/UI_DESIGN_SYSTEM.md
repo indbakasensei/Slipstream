@@ -1,6 +1,6 @@
 # Slipstream Neo — UI Design System
 
-**Status: v2.2-dev, UX Milestone 2 (Queue + Charts).** This document defines Slipstream's
+**Status: v2.2-dev, UX Milestone 3 (Workspace Revolution).** This document defines Slipstream's
 visual language: the token scales, colour palette, typography, components, and
 layout philosophy that every screen is built from. It is the single reference
 for "what should this look like." The implementation lives in
@@ -138,6 +138,18 @@ consistent and themable from one place.
   a dashed engineering empty state shown in place of the plot when no DONE
   result data exists.
 
+### Stage 3 additions
+
+- **Parameter name/meta** (`paramName`, `paramMeta`) — QSS for the engineering
+  control panel's rich parameter rows: bold display name + uppercase range
+  captions.
+- **Image surface/meta/empty** (`imageSurface`, `imageMetaCaption`,
+  `imageMetaValue`, `imageEmptyTitle`, `imageEmptyHint`) — metadata bar and
+  empty state styling for the images workspace.
+- **Console surface** (`CONSOLE_BG`, `CONSOLE_TEXT`, `CONSOLE_PROMPT`,
+  `[console="true"]`, `[consoleInput="true"]`) — the engineering terminal's
+  monospace dark surface with coloured prompt and input bar.
+
 ## 7. Layout philosophy
 
 - **Cards group related information.** A screen is a vertical stack (or grid)
@@ -203,6 +215,90 @@ The Charts page is the primary analytical workspace — the plot dominates:
 
 No analytics were touched; `series_groups` remains the single source of chart
 series shared with the Dashboard.
+
+## 8c. Parameters — engineering control panel (Stage 3)
+
+The Parameters dock is an engineering control panel for viewing and editing the
+selected experiment's inputs. It remains fully metadata-driven — every editor,
+label, range, unit, and default is generated from the active template's
+`ParameterDefinition` via `gui.param_render`. No parameter names are hardcoded.
+
+Layout:
+1. **Section header** — `SectionHeader("Parameters", icon_name="settings")` with
+   a hint line explaining that editors come from template metadata.
+2. **Selected experiment** — a `QGroupBox` containing a `QFormLayout` of rich
+   parameter rows. Each row has a **label column** (display name + allowed range)
+   and a **field column** (spin box + unit/default caption), all built by
+   `_build_row()`. The selection caption (`sel_lbl`) shows the active row's
+   CaseID and status; locked rows (DONE/FAILED) are disabled. Apply and Skip
+   buttons sit below the form with painted icons.
+3. **Add experiment** — a parallel `QGroupBox` of the same rich rows for new
+   values, with Add Row and Duplicate Selected buttons.
+
+Public API preserved: `sel_box`, `add_box`, `form`, `_sel_rows`, `_add_rows`,
+`_wbp_spins`, `_rebuild_wbp()`, `_load_row()`, `_apply()`, `_skip()`, `_add()`,
+`_duplicate()`, `_validate()`, `_guard()`, `_scroll`, `minimumWidth`,
+and all signals. WBP columns use `plain_spin()` (no metadata bounds) and are
+still removed via `form.removeRow(spin)` in `_rebuild_wbp()`.
+
+Design tokens: `paramName` (body weight 600), `paramMeta` (caption uppercase +
+letter-spacing) for range / unit / default captions.
+
+## 8d. Images — engineering visualization workspace (Stage 3)
+
+The Images panel is an engineering image inspection workspace for viewing CFD
+contour plots, velocity fields, and post-processing artifacts.
+
+Layout:
+1. **Section header** — `SectionHeader("Image Viewer", icon_name="images")`.
+2. **Toolbar** — case selector combo + refresh / open-folder / fit-to-window
+   buttons, all using painted vector icons.
+3. **Workspace** — a `QStackedLayout` toggling between:
+   - **Workspace (index 0)**: a thumbnail strip (`list`) on the left, a zoomable
+     graphics view (`view` + `scene` + `pix_item`) on the right, and a metadata
+     bar at the bottom showing filename, pixel dimensions, and file size.
+   - **Empty state (index 1)**: a dashed engineering frame with title "No
+     Artifacts Yet" and a hint to run a study and select a case.
+4. **Path bar** — the full artifact path at the bottom.
+
+`_meta_show()` updates the metadata bar when a new image is loaded;
+`_meta_clear()` resets it. `_fmt_size()` formats bytes into human-readable
+strings.
+
+Public API preserved: `case_box`, `list`, `scene`, `pix_item`, `view`,
+`path_lbl`, `refresh()`, `show_file()`, `image_files()`.
+
+## 8e. Console — engineering command terminal (Stage 3)
+
+The Console is a presentation-only command terminal docked in the bottom panel
+(tabbed with Log and Statistics). It maps typed commands to signals that
+MainWindow connects to existing public actions — no eval, exec, or backend
+access.
+
+Structure:
+1. **Header** — "CONSOLE" caption + Clear button.
+2. **Terminal** — a `QPlainTextEdit` (property `console="true"`) with 4000-line
+   cap, monospace font, coloured log output by level.
+3. **Input bar** — `QLineEdit` (property `consoleInput="true"`) with a
+   `QCompleter` over sorted command names, and a `slipstream ›` prompt label.
+
+Commands: `help`, `open`, `run`, `stop`, `reload`, `mock on|off|toggle`, `clear`.
+Each command is echoed, dispatched, and the result appended to the terminal.
+Up/Down arrow keys navigate command history.
+
+Signals emitted by ConsolePanel:
+- `openRequested` → `MainWindow._open_dialog`
+- `runRequested` → `MainWindow.start_run`
+- `stopRequested` → `MainWindow._stop`
+- `reloadRequested` → `MainWindow._reload`
+- `mockSet(bool)` → `MainWindow._on_mock_toggled`
+- `mockToggleRequested` → `MainWindow._toggle_mock`
+
+MainWindow also connects `runStateChanged` → `_console_run_state()`, which
+prints "batch running" / "batch idle" status lines to the console.
+
+Design tokens: `CONSOLE_BG` (#141519), `CONSOLE_TEXT` (#c9cdd6),
+`CONSOLE_PROMPT` (ACCENT), QSS for `[console="true"]` and `[consoleInput="true"]`.
 
 ## 9. Motion & performance
 
