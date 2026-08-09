@@ -1,7 +1,12 @@
-"""Simulation queue — the schedule as a live, colour-coded table + run controls.
+"""Simulation queue — the engineering worklist for a running study.
 
 Emits high-level intent (run/stop); the MainWindow owns the EngineWorker.
 Row selection drives every other case-aware panel through AppState.
+
+v2.2 Workspace Revolution: the queue is restyled as a professional engineering
+worklist with a summary header, status filter pills, compact row density, and
+an empty state — all presentation-only. Every public attribute and signal is
+preserved; the data model (AppState.df) is never modified.
 """
 
 from __future__ import annotations
@@ -40,12 +45,19 @@ class QueuePanel(QWidget):
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
         self.state = state
+        self._active_filter: str = "ALL"
 
-        # -- controls ---------------------------------------------------- #
-        # Neo (v2.1): run controls live in one ToolbarSection "group" with
-        # painted icons; behavior/signals unchanged.
-        bar = QHBoxLayout()
-        bar.setSpacing(theme.SPACE_SM)
+        # ---- Header row: section title + status summary + run controls -- #
+        header = QHBoxLayout()
+        header.setSpacing(theme.SPACE_MD)
+        header.addWidget(SectionHeader("Queue", icon_name="queue"), 1)
+
+        # Status summary — computed on every refresh from df
+        self._summary_lbl = QLabel("")
+        self._summary_lbl.setProperty("hint", True)
+        header.addWidget(self._summary_lbl)
+
+        # Run controls — preserved exactly as before
         run_grp = ToolbarSection("Run")
         self.run_all = QPushButton("Run All")
         self.run_all.setProperty("accent", True)
@@ -61,28 +73,40 @@ class QueuePanel(QWidget):
         run_grp.add(self.run_all)
         run_grp.add(self.run_sel)
         run_grp.add(self.stop_btn)
-        bar.addWidget(run_grp)
-        bar.addSpacing(theme.SPACE_MD)
-        self.retry_chk = QCheckBox("Retry FAILED")
-        bar.addWidget(self.retry_chk)
-        bar.addWidget(QLabel("Max cases:"))
-        self.max_spin = QSpinBox(); self.max_spin.setRange(0, 9999)
-        self.max_spin.setSpecialValueText("all")
-        bar.addWidget(self.max_spin)
-        bar.addStretch(1)
+        header.addWidget(run_grp)
 
-        # -- table --------------------------------------------------------#
+        # ---- Filter row ------------------------------------------------ #
+        self._filter_btns: dict[str, QPushButton] = {}
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(theme.SPACE_XS)
+        filter_row.setContentsMargins(0, 0, 0, 0)
+        for label in ("ALL", "PENDING", "RUNNING", "DONE", "FAILED"):
+            btn = QPushButton(label)
+            btn.setProperty("queueFilter", True)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda _, l=label: self._set_filter(l))
+            self._filter_btns[label] = btn
+            filter_row.addWidget(btn)
+        filter_row.addStretch(1)
+        self.retry_chk = QCheckBox("Retry FAILED")
+        filter_row.addWidget(self.retry_chk)
+        self.max_spin = QSpinBox()
+        self.max_spin.setRange(0, 9999)
+        self.max_spin.setSpecialValueText("all")
+        filter_row.addWidget(QLabel("Max:"))
+        filter_row.addWidget(self.max_spin)
+        self._update_filter_btns()
+
+        # ---- Table ----------------------------------------------------- #
         self.table = QTableWidget()
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(34)
+        self.table.verticalHeader().setDefaultSectionSize(30)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._menu)
         self.table.itemSelectionChanged.connect(self._selection_changed)
-        # Neo (v2.1): the Status column renders as rounded chips via a
-        # paint-only delegate (item/text/sort/selection untouched).
         self._status_delegate = StatusBadgeDelegate()
         try:
             self.table.setItemDelegateForColumn(
@@ -90,15 +114,25 @@ class QueuePanel(QWidget):
         except ValueError:
             pass
 
+        # ---- Empty state ------------------------------------------------ #
+        self._empty = QLabel("No simulation cases in queue.\nLoad a project "
+                             "and run a study to populate the queue.")
+        self._empty.setAlignment(Qt.AlignCenter)
+        self._empty.setProperty("hint", True)
+
+        # ---- Assemble -------------------------------------------------- #
         lay = QVBoxLayout(self)
         lay.setContentsMargins(theme.PANEL_MARGIN, theme.PANEL_MARGIN,
                                theme.PANEL_MARGIN, theme.PANEL_MARGIN)
         lay.setSpacing(theme.SPACE_SM)
-        lay.addWidget(SectionHeader("Queue", icon="▤"))
-        lay.addLayout(bar)
-        lay.addWidget(self.table)
+        lay.addLayout(header)
+        lay.addLayout(filter_row)
+        lay.addWidget(self.table, 1)
+        lay.addWidget(self._empty)
+        self._empty.hide()
+        self.setMinimumWidth(theme.MIN_QUEUE_WIDTH)
 
-        # -- wiring -------------------------------------------------------#
+        # -- wiring ------------------------------------------------------- #
         self.run_all.clicked.connect(lambda: self.runRequested.emit(
             None, self.retry_chk.isChecked(), self.max_spin.value()))
         self.run_sel.clicked.connect(self._run_selected)
@@ -144,6 +178,9 @@ class QueuePanel(QWidget):
         hdr = self.table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
         hdr.setStretchLastSection(True)
+        # v2.2: summary header + status filter
+        self._update_summary(df)
+        self._apply_filter()
 
     # ------------------------------------------------------------------ #
     def _cell_value(self, row, name: str, numeric_input_cols: Set[str]):
@@ -200,6 +237,65 @@ class QueuePanel(QWidget):
         for w in (self.run_all, self.run_sel, self.retry_chk, self.max_spin):
             w.setEnabled(not running)
         self.stop_btn.setEnabled(running)
+
+    # -- v2.2: status summary + filter ------------------------------------ #
+    def _update_summary(self, df) -> None:
+        """Recompute the compact header status line from the current df."""
+        total = len(df)
+        if total == 0:
+            self._summary_lbl.setText("No cases")
+            return
+        counts = df["Status"].value_counts() if "Status" in df.columns else {}
+        done = int(counts.get("DONE", 0))
+        failed = int(counts.get("FAILED", 0))
+        running = int(counts.get("RUNNING", 0))
+        pending = int(counts.get("PENDING", 0))
+        parts = [f"{total} cases"]
+        if done:
+            parts.append(f"{done} done")
+        if running:
+            parts.append(f"{running} running")
+        if pending:
+            parts.append(f"{pending} pending")
+        if failed:
+            parts.append(f"{failed} failed")
+        self._summary_lbl.setText(" · ".join(parts))
+
+    def _set_filter(self, label: str) -> None:
+        self._active_filter = label
+        self._update_filter_btns()
+        self._apply_filter()
+
+    def _update_filter_btns(self) -> None:
+        for lbl, btn in self._filter_btns.items():
+            btn.setProperty("active", lbl == self._active_filter)
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+    def _apply_filter(self) -> None:
+        """Show/hide table rows to match the active status filter.
+        Presentation-only — never modifies AppState.df."""
+        f = self._active_filter
+        visible = 0
+        for r in range(self.table.rowCount()):
+            if f == "ALL":
+                show = True
+            else:
+                status_item = None
+                try:
+                    status_item = self.table.item(
+                        r, self.columns().index("Status"))
+                except (ValueError, IndexError):
+                    pass
+                row_status = status_item.text() if status_item else ""
+                show = (row_status == f)
+            self.table.setRowHidden(r, not show)
+            if show:
+                visible += 1
+        # Toggle empty state
+        has_data = self.table.rowCount() > 0
+        self._empty.setVisible(not has_data or visible == 0)
+        self.table.setVisible(has_data and visible > 0)
 
     # -- context menu -----------------------------------------------------#
     def _menu(self, pos) -> None:

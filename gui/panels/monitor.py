@@ -1,21 +1,22 @@
 """Run monitor — Neo redesign (UX Milestone 1).
 
-A card-based, information-first live view of the running study. Business logic
-is untouched: the panel still renders purely from the engine events delivered
-to :meth:`handle_event`, and every public attribute the app/tests rely on
-(``bar``, ``pipeline``, ``forces``, ``residuals``, ``cl_curve``, ``cd_curve``,
-``_tabs``, ``_scroll``, ``handle_event``, ``_append_iteration``,
-``_reset_case``) is preserved. Only the *presentation* changed — from a cramped
-stack into five clear cards:
+A telemetry-style, information-first live view of the running study. Business
+logic is untouched: the panel still renders purely from the engine events
+delivered to :meth:`handle_event`, and every public attribute the app/tests
+rely on (``bar``, ``pipeline``, ``forces``, ``residuals``, ``cl_curve``,
+``cd_curve``, ``_tabs``, ``_scroll``, ``handle_event``, ``_append_iteration``,
+``_reset_case``) is preserved. Only the *presentation* changed — from five
+heavy cards into the brief's quiet engineering-telemetry flow:
 
-* **Current Study** — case title, details, overall progress, solver status,
+* **Current Run** — case headline, details, progress, solver status,
   estimated time remaining.
 * **Pipeline** — Mesh → Workbench → Fluent → Post-processing stage strip.
-* **Live Metrics** — iterations, residual, and the template's force metrics
-  with their current values.
-* **Convergence** — the Forces / Residuals plots (tabbed).
-* **Timeline** — a newest-first event feed (mesh generated, solver started,
-  convergence, results written, finished).
+* **Live Telemetry** — iterations, min residual, and the template's force
+  metrics as compact monospace readout cells.
+* **Convergence** — the Forces / Residuals plots (tabbed), the dominant
+  vertical block.
+* **Event History** — a newest-first event feed (mesh generated, solver
+  started, convergence, results written, finished).
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel,
 from cfdauto.events import Event
 from cfdauto.platform import get_default_template
 from gui import theme
-from gui.widgets import Card, PipelineWidget, StatusChip
+from gui.widgets import PipelineWidget, StatusChip
 
 _PRESTAGE_PCT = {"mesh": 12, "fluent_launch": 20, "setup": 23,
                  "initialize": 25}
@@ -48,20 +49,44 @@ _RES_CHANNELS = [
 
 
 def _metric_tile(caption: str) -> tuple:
-    """A small (caption over big value) readout tile. Returns (frame, value)."""
+    """A compact (caption over big value) telemetry cell. Returns (frame, value)."""
     frame = QFrame()
-    frame.setProperty("section", True)
+    frame.setProperty("telemetry", True)
     lay = QVBoxLayout(frame)
     lay.setContentsMargins(theme.SPACE_MD, theme.SPACE_SM,
                            theme.SPACE_MD, theme.SPACE_SM)
     lay.setSpacing(2)
     cap = QLabel(caption)
-    cap.setProperty("caption", True)
+    cap.setProperty("telemetryCaption", True)
     val = QLabel("–")
-    val.setProperty("metric", True)
+    val.setProperty("telemetryValue", True)
     lay.addWidget(cap)
     lay.addWidget(val)
     return frame, val
+
+
+def _block(title: str, accessory=None):
+    """A quiet telemetry block: uppercase label + optional right accessory.
+    Returns (frame, body_layout)."""
+    frame = QFrame()
+    frame.setProperty("telemetry", True)
+    lay = QVBoxLayout(frame)
+    lay.setContentsMargins(theme.SPACE_MD, theme.SPACE_SM,
+                           theme.SPACE_MD, theme.SPACE_SM)
+    lay.setSpacing(theme.SPACE_SM)
+    if accessory is not None:
+        head = QHBoxLayout()
+        t = QLabel(title)
+        t.setProperty("caption", True)
+        head.addWidget(t)
+        head.addStretch(1)
+        head.addWidget(accessory)
+        lay.addLayout(head)
+    else:
+        t = QLabel(title)
+        t.setProperty("caption", True)
+        lay.addWidget(t)
+    return frame, lay
 
 
 class MonitorPanel(QWidget):
@@ -129,32 +154,34 @@ class MonitorPanel(QWidget):
         self._metric_names = (cl_name, cd_name)
 
         # ================================================================ #
-        # CARD LAYOUT
+        # WORKSPACE LAYOUT (v2.2)
         # ================================================================ #
-        # -- Current Study card ------------------------------------------ #
-        # Neo (v2.1): card titles sit at h2 so the Current Study's case
-        # headline (h1) owns the hierarchy.
-        study_card = Card("Current Study", heading_level="h2")
-        study_card.set_accessory(self.status_chip)
-        study_card.add(self.case_lbl)
-        study_card.add(self.info_lbl)
-        study_card.add(self.bar)
+        # The brief's flow: CURRENT RUN → PIPELINE → LIVE TELEMETRY →
+        # CONVERGENCE → EVENT HISTORY. Quiet telemetry blocks (hairline
+        # hairline frames, uppercase captions) instead of heavy cards; the
+        # plots own the vertical stretch. Presentation only.
+
+        # -- Current run block ------------------------------------------- #
+        run_block, run_lay = _block("Current Run", accessory=self.status_chip)
+        run_lay.addWidget(self.case_lbl)
+        run_lay.addWidget(self.info_lbl)
+        run_lay.addWidget(self.bar)
         prog_row = QHBoxLayout()
         eta_cap = QLabel("Est. remaining")
         eta_cap.setProperty("caption", True)
         prog_row.addWidget(eta_cap)
         prog_row.addWidget(self.eta_lbl)
         prog_row.addStretch(1)
-        study_card.add_layout(prog_row)
+        run_lay.addLayout(prog_row)
 
-        # -- Pipeline card ----------------------------------------------- #
-        pipe_card = Card("Pipeline", heading_level="h2")
-        pipe_card.add(self.pipeline)
+        # -- Pipeline block ---------------------------------------------- #
+        pipe_block, pipe_lay = _block("Pipeline")
+        pipe_lay.addWidget(self.pipeline)
 
-        # -- Live Metrics card ------------------------------------------- #
-        metrics_card = Card("Live Metrics", heading_level="h2")
+        # -- Live Telemetry block ---------------------------------------- #
+        metrics_block, metrics_lay = _block("Live Telemetry")
         grid = QGridLayout()
-        grid.setSpacing(theme.SPACE_MD)
+        grid.setSpacing(theme.SPACE_SM)
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
         self._metric_vals: Dict[str, QLabel] = {}
@@ -164,30 +191,30 @@ class MonitorPanel(QWidget):
             frame, val = _metric_tile(cap)
             self._metric_vals[key] = val
             grid.addWidget(frame, i // 2, i % 2)
-        metrics_card.add_layout(grid)
+        metrics_lay.addLayout(grid)
 
-        # -- Convergence (plots) card ------------------------------------ #
-        conv_card = Card("Convergence", heading_level="h2")
-        conv_card.add(self._tabs, 1)
+        # -- Convergence block (plots, dominant) ------------------------- #
+        conv_block, conv_lay = _block("Convergence")
+        conv_lay.addWidget(self._tabs, 1)
 
-        # -- Timeline card ----------------------------------------------- #
-        timeline_card = Card("Timeline", heading_level="h2")
+        # -- Event History block ----------------------------------------- #
+        hist_block, hist_lay = _block("Event History")
         self.timeline = QListWidget()
-        self.timeline.setMinimumHeight(144)
+        self.timeline.setMinimumHeight(128)
         self.timeline.setFrameShape(QFrame.NoFrame)
-        timeline_card.add(self.timeline, 1)
+        hist_lay.addWidget(self.timeline, 1)
 
         # ---- assemble (scrollable so nothing clips in a short dock) ---- #
         content = QWidget()
         cv = QVBoxLayout(content)
         cv.setContentsMargins(theme.PANEL_MARGIN, theme.PANEL_MARGIN,
                               theme.PANEL_MARGIN, theme.PANEL_MARGIN)
-        cv.setSpacing(theme.SECTION_SPACING)
-        cv.addWidget(study_card)
-        cv.addWidget(pipe_card)
-        cv.addWidget(metrics_card)
-        cv.addWidget(conv_card, 1)
-        cv.addWidget(timeline_card)
+        cv.setSpacing(theme.SPACE_SM)
+        cv.addWidget(run_block)
+        cv.addWidget(pipe_block)
+        cv.addWidget(metrics_block)
+        cv.addWidget(conv_block, 1)
+        cv.addWidget(hist_block)
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)

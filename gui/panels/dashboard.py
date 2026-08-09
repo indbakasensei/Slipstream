@@ -239,13 +239,15 @@ class DashboardPanel(QWidget):
 
         body_lay.addWidget(kpi_row)
 
+        # v2.2 Workspace Revolution: the results chart is the visual anchor —
+        # it sits directly under the KPI row, above the overview/pipeline pair.
+        body_lay.addWidget(chart_frame, 1)
+
         pair1 = _FlowLayout(spacing=theme.SPACE_MD)
         pair1.addWidget(self.study_overview)
         pair1.addWidget(pipeline_frame)
         pair1_w = QWidget(); pair1_w.setLayout(pair1)
         body_lay.addWidget(pair1_w)
-
-        body_lay.addWidget(chart_frame, 1)
 
         pair2 = _FlowLayout(spacing=theme.SPACE_MD)
         pair2.addWidget(activity_frame)

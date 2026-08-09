@@ -13,14 +13,18 @@ from typing import Optional
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from gui import theme
+from gui.widgets.icons import make_icon
 
 
 class SectionHeader(QWidget):
     """``icon`` is an optional single glyph/emoji, matching this app's
     existing convention of Unicode-glyph icons (✓/✗/⚠/▶) rather than icon
-    font/resource files. ``separator`` draws a thin rule below the title."""
+    font/resource files. ``icon_name`` is the preferred alternative: a painted
+    :func:`gui.widgets.icons.make_icon` name, used where a vector icon exists.
+    ``separator`` draws a thin rule below the title."""
 
     def __init__(self, title: str, icon: Optional[str] = None,
+                 icon_name: Optional[str] = None,
                  separator: bool = True, parent=None):
         super().__init__(parent)
         outer = QVBoxLayout(self)
@@ -34,6 +38,12 @@ class SectionHeader(QWidget):
             icon_lbl = QLabel(icon)
             icon_lbl.setProperty("h2", True)
             row.addWidget(icon_lbl)
+        elif icon_name:
+            ic = make_icon(icon_name, theme.TEXT_DIM, 14)
+            if ic is not None:
+                icon_lbl = QLabel()
+                icon_lbl.setPixmap(ic.pixmap(14, 14))
+                row.addWidget(icon_lbl)
         self.title_lbl = QLabel(title)
         self.title_lbl.setProperty("h2", True)
         row.addWidget(self.title_lbl)

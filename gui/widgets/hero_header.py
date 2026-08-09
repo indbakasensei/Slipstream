@@ -37,11 +37,12 @@ class HeroHeader(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setProperty("hero", True)
-        self.setMinimumHeight(120)
+        # v2.2 Workspace Revolution: slimmer so the hero stops dominating the
+        # page — identity is present but the KPIs + chart carry the screen.
+        self.setMinimumHeight(96)
 
         outer = QHBoxLayout(self)
-        outer.setContentsMargins(theme.SPACE_LG, theme.SPACE_MD,
-                                 theme.SPACE_LG, theme.SPACE_MD)
+        outer.setContentsMargins(0, theme.SPACE_SM, 0, theme.SPACE_SM)
         outer.setSpacing(theme.SPACE_LG)
 
         # ---- identity column (left) ----------------------------------- #
@@ -100,7 +101,7 @@ class HeroHeader(QFrame):
         self.open_btn.clicked.connect(self.openProjectClicked)
         actions.addWidget(self.open_btn)
 
-        self.report_btn = self._make_action("Generate Report", "results", None)
+        self.report_btn = self._make_action("Generate Report", "report", None)
         self.report_btn.clicked.connect(lambda: self.actionClicked.emit("report"))
         actions.addWidget(self.report_btn)
 

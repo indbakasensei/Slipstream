@@ -151,12 +151,26 @@ def main() -> int:
     _save(win.monitor, "monitor")
 
     # charts page
-    log("--- capture 6/6: charts ---")
+    log("--- capture 6/8: charts ---")
     win._navigate_to_page("charts")
     win.charts.refresh()
     _pump_until(app, lambda: win.charts.point_count() == 8,
                 timeout_s=30.0, label="charts 8 series")
     _save(win, "main_charts")
+
+    # v2.2: close-up queue screenshot
+    log("--- capture 7/8: queue v2.2 ---")
+    win._navigate_to_page("dashboard")
+    _pump_until(app, lambda: True, label="settle")
+    _save(win.queue, "queue_v22")
+
+    # v2.2: close-up charts screenshot
+    log("--- capture 8/8: charts v2.2 ---")
+    win._navigate_to_page("charts")
+    win.charts.refresh()
+    _pump_until(app, lambda: win.charts.point_count() == 8,
+                timeout_s=30.0, label="charts 8 series v2.2")
+    _save(win.charts, "charts_v22")
 
     log("capture complete")
     return 0

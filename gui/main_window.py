@@ -177,14 +177,14 @@ class MainWindow(QMainWindow):
         self.splitter.setSizes([230, max(200, total - 230 - queue_w), queue_w])
 
         # Mock-mode banner sits above the splitter, spanning full width.
+        # Presentation-only: styled from theme tokens (WARNING surface) via
+        # the mockBanner QSS role instead of a hardcoded inline stylesheet.
         self.mock_banner = QLabel(
             "⚠  MOCK MODE — no ANSYS software will run · results are "
             "fabricated for pipeline testing only  ⚠")
         self.mock_banner.setAlignment(Qt.AlignCenter)
-        self.mock_banner.setStyleSheet(
-            "QLabel { background: #e8a33d; color: #1e1f22; "
-            "font-weight: 700; font-size: 12px; padding: 6px 8px; "
-            "border-bottom: 1px solid #b0771e; }")
+        self.mock_banner.setProperty("mockBanner", True)
+        self.mock_banner.setAttribute(Qt.WA_StyledBackground, True)
         self.mock_banner.hide()
 
         central = QWidget()
@@ -243,7 +243,7 @@ class MainWindow(QMainWindow):
         self.sb_template.setText(f"Template: {template}" if template
                                  else "Template: —")
         mode = "MOCK" if st.effective_mock else "LIVE"
-        colour = "#e8a33d" if mode == "MOCK" else "#3fbf7f"
+        colour = theme.WARNING_TEXT if mode == "MOCK" else theme.SUCCESS_TEXT
         self.sb_mode.setText(mode)
         self.sb_mode.setStyleSheet(
             f"color: {colour}; background: rgba(0,0,0,0); "
@@ -432,7 +432,8 @@ class MainWindow(QMainWindow):
             if btn is not None:
                 if is_mock:
                     btn.setStyleSheet(
-                        "background: #e8a33d; color: #1e1f22; "
+                        f"background: {theme.WARNING_TEXT}; "
+                        f"color: {theme.BG_PANEL}; "
                         "font-weight: 700; border-radius: 4px; "
                         "padding: 4px 10px;")
                 else:

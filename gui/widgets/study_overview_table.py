@@ -45,7 +45,7 @@ class StudyOverviewTable(QWidget):
         card_lay.setContentsMargins(theme.CARD_MARGIN, theme.CARD_MARGIN,
                                     theme.CARD_MARGIN, theme.CARD_MARGIN)
         card_lay.setSpacing(theme.SPACE_SM)
-        card_lay.addWidget(SectionHeader("Study Overview", icon="📋"))
+        card_lay.addWidget(SectionHeader("Study Overview", icon_name="results"))
 
         self.table = QTableWidget(len(self._fields()), 2)
         self.table.horizontalHeader().setVisible(False)

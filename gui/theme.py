@@ -127,12 +127,25 @@ TOOLBAR_ICON_SIZE = 18    # standard icon canvas for toolbar / nav
 # ===========================================================================
 HERO_FONT_SIZE = 28            # project name in hero header
 HERO_TEMPLATE_SIZE = 13        # template name / subtitle in hero header
-KPI_VALUE_FONT_SIZE = 32       # big number on KPI card
+KPI_VALUE_FONT_SIZE = 26       # big number on KPI card (v2.2: compact)
 KPI_ICON_SIZE = 20             # icon canvas in KPI card
 KPI_ACCENT_HEIGHT = 3          # colored accent bar at top of KPI card
 CHART_MIN_HEIGHT = 420         # dashboard chart minimum height
 FEED_ROW_HEIGHT = 36           # activity feed row height
 QUICK_ACTION_SIZE = 44         # quick action button/icon area
+
+# ===========================================================================
+# WORKSPACE REVOLUTION — command bar / console / status-surface tokens (v2.2;
+# additive; no existing token was changed)
+# ===========================================================================
+COMMAND_BAR_HEIGHT = 46        # top command/project strip above the pages
+WARNING_SURFACE = "#3a2f1f"    # amber-tinted surface (mock banner, warn chips)
+WARNING_TEXT = WARNING         # text on warning surfaces
+SUCCESS_SURFACE = "#1f3a2c"    # green-tinted surface (ready/real chips)
+SUCCESS_TEXT = SUCCESS         # text on success surfaces
+CONSOLE_BG = "#141519"         # terminal surface (deeper than the window)
+CONSOLE_TEXT = "#c9cdd6"       # terminal body text
+CONSOLE_PROMPT = ACCENT        # prompt / input accent in the console
 
 # ===========================================================================
 # STATUS + SERIES colours (shared by queue, chips, pipeline, cards, plots)
@@ -409,8 +422,9 @@ QLabel[emptyTitle="true"] {{ font-size: {FONT_SIZE_DISPLAY}px;
 QLabel[emptyHint="true"] {{ color: {TEXT_DIM}; font-size: {FONT_SIZE_BODY}px; }}
 
 /* ---- dashboard revolution: hero header ------------------------------------ */
-QFrame[hero="true"] {{ background: {BG_ELEVATED}; border: 1px solid {BORDER};
-    border-radius: {RADIUS_LG}px; }}
+/* v2.2 Workspace Revolution: the hero is a flat workspace banner now, not a
+   floating elevated card — it pinches project identity without dominating. */
+QFrame[hero="true"] {{ background: transparent; border: none; }}
 QLabel[heroTitle="true"] {{ font-size: {HERO_FONT_SIZE}px; font-weight: 700;
     color: {TEXT}; }}
 QLabel[heroMeta="true"] {{ color: {TEXT_DIM}; font-size: {HERO_TEMPLATE_SIZE}px;
@@ -433,8 +447,10 @@ QLabel[kpiCaption="true"] {{ color: {TEXT_DIM}; font-size: {FONT_SIZE_SMALL}px;
     letter-spacing: 0.5px; }}
 
 /* ---- dashboard revolution: section cards ----------------------------------- */
-QFrame[dashSection="true"] {{ background: {BG_CARD}; border: 1px solid {BORDER};
-    border-radius: {RADIUS_LG}px; }}
+/* v2.2 Workspace Revolution: sections keep a quiet grouped surface (one
+   step off the panel, not a heavy floating card). */
+QFrame[dashSection="true"] {{ background: {BG_PANEL}; border: 1px solid {BORDER};
+    border-radius: {RADIUS}px; }}
 QLabel[dashSectionTitle="true"] {{ color: {TEXT}; font-size: {FONT_SIZE_BODY}px;
     font-weight: 700; }}
 QLabel[dashSectionHint="true"] {{ color: {TEXT_FAINT}; font-size: {FONT_SIZE_SMALL}px; }}
@@ -446,6 +462,66 @@ QPushButton[quickAction="true"] {{ background: {BG_FIELD}; border: 1px solid {BO
 QPushButton[quickAction="true"]:hover {{ background: {BG_HOVER};
     border: 1px solid {ACCENT}; }}
 QPushButton[quickAction="true"]:pressed {{ background: {BG_PRESSED}; }}
+
+/* ====================================================================== */
+/* WORKSPACE REVOLUTION — command bar / console / telemetry (v2.2.0)       */
+/* ====================================================================== */
+
+/* ---- command / project bar ------------------------------------------- */
+QWidget[commandBar="true"] {{ background: {BG_PANEL};
+    border-bottom: 1px solid {BORDER}; }}
+QWidget[pageHeader="true"] {{ background: {BG_PANEL};
+    border-bottom: 1px solid {BORDER}; }}
+QLabel[mockBanner="true"] {{ background: {WARNING_SURFACE}; color: {WARNING_TEXT};
+    font-weight: 700; font-size: {FONT_SIZE_SMALL}px; letter-spacing: 0.4px;
+    padding: 5px 8px; border-bottom: 1px solid {BORDER_STRONG}; }}
+
+/* ---- engineering terminal (log + console) ----------------------------- */
+QLabel[levelChip="true"] {{ font-family: {FONT_MONO}; font-weight: 700;
+    font-size: {FONT_SIZE_CAPTION}px; padding: 1px 6px; border-radius: 3px;
+    background: {BG_FIELD}; color: {TEXT_DIM}; }}
+QPlainTextEdit[console="true"] {{ background: {CONSOLE_BG}; color: {CONSOLE_TEXT};
+    font-family: {FONT_MONO}; font-size: {FONT_SIZE_SMALL}px;
+    border: none; selection-background-color: {ACCENT_DIM}; }}
+QLineEdit[consoleInput="true"] {{ background: {CONSOLE_BG}; color: {CONSOLE_TEXT};
+    font-family: {FONT_MONO}; font-size: {FONT_SIZE_SMALL}px;
+    border: none; border-top: 1px solid {BORDER}; padding: 6px 10px; }}
+
+/* ---- telemetry blocks (monitor live readouts) ------------------------- */
+QFrame[telemetry="true"] {{ background: {BG_FIELD}; border: 1px solid {BORDER};
+    border-radius: {RADIUS_SM}px; }}
+QLabel[telemetryValue="true"] {{ font-family: {FONT_MONO};
+    font-size: {FONT_SIZE_STAT}px; font-weight: 700; color: {TEXT}; }}
+QLabel[telemetryCaption="true"] {{ color: {TEXT_FAINT};
+    font-size: {FONT_SIZE_CAPTION}px; text-transform: uppercase;
+    letter-spacing: 0.6px; }}
+
+/* ---- queue engineering worklist ---------------------------------------- */
+QWidget[queueFilters="true"] {{ background: transparent; }}
+QPushButton[queueFilter="true"] {{
+    background: {BG_FIELD}; color: {TEXT_DIM};
+    border: 1px solid {BORDER}; border-radius: {RADIUS_SM}px;
+    padding: 4px 12px; font-size: {FONT_SIZE_SMALL}px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.4px; }}
+QPushButton[queueFilter="true"]:hover {{ background: {BG_HOVER}; color: {TEXT}; }}
+QPushButton[queueFilter="true"][active="true"] {{
+    background: {ACCENT}; color: {ACCENT_TEXT}; border-color: {ACCENT}; }}
+QFrame[queueSummary="true"] {{ background: {BG_FIELD}; border: 1px solid {BORDER};
+    border-radius: {RADIUS_SM}px; }}
+QLabel[queueSummaryValue="true"] {{ color: {TEXT}; font-size: {FONT_SIZE_BODY}px;
+    font-weight: 700; }}
+QLabel[queueSummaryCaption="true"] {{ color: {TEXT_FAINT};
+    font-size: {FONT_SIZE_CAPTION}px; text-transform: uppercase; }}
+
+/* ---- charts analytical workspace --------------------------------------- */
+QWidget[chartToolbar="true"] {{ background: {BG_PANEL}; border: 1px solid {BORDER};
+    border-radius: {RADIUS}px; }}
+QFrame[chartEmpty="true"] {{ background: {BG_FIELD}; border: 1px dashed {BORDER};
+    border-radius: {RADIUS}px; }}
+QLabel[chartEmptyTitle="true"] {{ color: {TEXT_DIM}; font-size: {FONT_SIZE_H2}px;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; }}
+QLabel[chartEmptyHint="true"] {{ color: {TEXT_FAINT};
+    font-size: {FONT_SIZE_BODY}px; }}
 """
 
 

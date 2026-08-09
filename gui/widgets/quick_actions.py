@@ -26,11 +26,11 @@ ActionSpec = Tuple[str, str, Optional[str]]   # (id, label, icon_name)
 DEFAULT_ACTIONS: List[ActionSpec] = [
     ("open", "Open Project", "open"),
     ("run", "Run Study", "run"),
-    ("resume", "Resume", "reload"),
-    ("report", "Generate Report", "results"),
-    ("export", "Export Results", "charts"),
-    ("validate", "Validate Project", "reload"),
-    ("config", "Configuration", "open"),
+    ("resume", "Resume", "resume"),
+    ("report", "Generate Report", "report"),
+    ("export", "Export Results", "export"),
+    ("validate", "Validate Project", "validate"),
+    ("config", "Configuration", "settings"),
 ]
 
 

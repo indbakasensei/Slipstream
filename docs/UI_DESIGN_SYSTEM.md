@@ -1,6 +1,6 @@
 # Slipstream Neo — UI Design System
 
-**Status: v2.0.0-dev, UX Milestone 1.** This document defines Slipstream's
+**Status: v2.2-dev, UX Milestone 2 (Queue + Charts).** This document defines Slipstream's
 visual language: the token scales, colour palette, typography, components, and
 layout philosophy that every screen is built from. It is the single reference
 for "what should this look like." The implementation lives in
@@ -122,6 +122,22 @@ All cards/sections are styled through QSS properties (`card`, `section`,
 `hero`, `badge`, `divider`) rather than per-widget stylesheets, so the look is
 consistent and themable from one place.
 
+### Stage 2 additions
+
+- **Queue filter pills** (`queueFilter` / `queueFilters`) — compact
+  uppercase status tabs (ALL / PENDING / RUNNING / DONE / FAILED); the active
+  pill fills with the accent colour. Pure presentation — rows are hidden via
+  `setRowHidden`, the data model is never touched.
+- **Queue summary line** (`queueSummary` / `queueSummaryValue` /
+  `queueSummaryCaption`) — the header's compact status readout ("8 cases ·
+  8 done"), computed from `df` on every refresh.
+- **Chart toolbar** (`chartToolbar`) — the charts page's grouped axis-control
+  strip (X / Y / Colour selectors + presets + export), styled as one
+  analytical surface with the same radius/border as panels.
+- **Chart empty state** (`chartEmpty`, `chartEmptyTitle`, `chartEmptyHint`) —
+  a dashed engineering empty state shown in place of the plot when no DONE
+  result data exists.
+
 ## 7. Layout philosophy
 
 - **Cards group related information.** A screen is a vertical stack (or grid)
@@ -150,6 +166,43 @@ The Monitor is the fullest expression of the system — five cards:
    convergence, results written, finished).
 
 It renders entirely from engine events; no business logic was added.
+
+## 8a. The Queue (reference implementation — Stage 2)
+
+The Queue is an engineering worklist, not an embedded spreadsheet:
+
+1. **Header row** — section title with a painted icon, a compact status
+   summary (total · done · running · pending · failed, computed from `df`),
+   and the preserved run controls grouped as one `ToolbarSection`.
+2. **Filter pills** — ALL / PENDING / RUNNING / DONE / FAILED status tabs
+   implemented entirely through row visibility; the data model is never
+   modified, so `table.rowCount()` still reports the full unfiltered count.
+3. **The table** — template-driven columns, compact 30 px rows, status cells
+   painted as colour-coded badges (`StatusBadgeDelegate`), a soft tint for
+   RUNNING rows, `ResizeToContents` + stretched last column.
+4. **Empty state** — a full-panel "No simulation cases in queue" message shown
+   when the table is empty or a filter hides every row.
+
+Every public attribute, signal, and method (run controls, `columns()`,
+`selected_rows()`, context menu) is preserved; the input columns still come
+from the runtime `ExperimentDefinition`.
+
+## 8b. The Charts (reference implementation — Stage 2)
+
+The Charts page is the primary analytical workspace — the plot dominates:
+
+1. **Analytical toolbar** — one grouped strip holding the X / Y / Colour
+   axis selectors, the study's preset buttons (labels built from the loaded
+   template's display names, never literal parameter names), and Export PNG.
+2. **The plot surface** — pyqtgraph untouched: `X`/`Y` axis labels from the
+   active axes, faint grid, colour-coded series with a legend, hover
+   identification.
+3. **Empty state** — a dashed "No Result Data / Run a study to populate
+   engineering plots" frame shown in place of the plot when there are no DONE
+   rows to plot. A `QStackedLayout` toggles between the two.
+
+No analytics were touched; `series_groups` remains the single source of chart
+series shared with the Dashboard.
 
 ## 9. Motion & performance
 

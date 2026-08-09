@@ -1,7 +1,13 @@
 """Interactive results charts (pyqtgraph): pick X/Y/color-by, presets for the
 classic aero plots, hover-to-identify, PNG export. Only DONE rows with valid
 numbers are plotted; grouping by the colour variable draws one sorted
-scatter+line series per group with a legend."""
+scatter+line series per group with a legend.
+
+v2.2 Workspace Revolution: the chart page is restyled as a professional
+analytical workspace — grouped axis controls, polished plot surface with an
+engineering empty state, and consistent visual hierarchy with the redesigned
+Dashboard and Monitor. Presentation-only; pyqtgraph untouched.
+"""
 
 from __future__ import annotations
 
@@ -10,12 +16,14 @@ from typing import Dict, List, Optional, Tuple
 
 import pyqtgraph as pg
 from pyqtgraph.exporters import ImageExporter
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QComboBox, QFileDialog, QHBoxLayout, QLabel,
-                               QPushButton, QVBoxLayout, QWidget)
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout,
+                               QLabel, QPushButton, QSizePolicy,
+                               QStackedLayout, QVBoxLayout, QWidget)
 
 from gui import theme
 from gui.state import AppState
+from gui.widgets import make_icon
 
 Y_CHOICES = ["CL", "CD", "L/D", "Lift_N", "Drag_N", "Iterations"]
 
@@ -48,17 +56,29 @@ class ChartsPanel(QWidget):
         super().__init__(parent)
         self.state = state
 
-        bar = QHBoxLayout()
-        bar.addWidget(QLabel("X:"))
+        # ---- Toolbar: axis selectors + presets + export ----------------- #
+        toolbar = QWidget()
+        toolbar.setProperty("chartToolbar", True)
+        tb = QHBoxLayout(toolbar)
+        tb.setContentsMargins(theme.SPACE_SM, theme.SPACE_SM,
+                              theme.SPACE_SM, theme.SPACE_SM)
+        tb.setSpacing(theme.SPACE_SM)
+
+        for lbl_text in ("X", "Y", "Color"):
+            lbl = QLabel(f"{lbl_text}:")
+            lbl.setProperty("caption", True)
+            tb.addWidget(lbl)
+
         self.x_box = QComboBox()
-        bar.addWidget(self.x_box)
-        bar.addWidget(QLabel("Y:"))
-        self.y_box = QComboBox(); self.y_box.addItems(Y_CHOICES)
-        bar.addWidget(self.y_box)
-        bar.addWidget(QLabel("Color by:"))
+        tb.addWidget(self.x_box)
+        self.y_box = QComboBox()
+        self.y_box.addItems(Y_CHOICES)
+        tb.addWidget(self.y_box)
         self.c_box = QComboBox()
-        bar.addWidget(self.c_box)
-        bar.addSpacing(10)
+        tb.addWidget(self.c_box)
+
+        tb.addSpacing(theme.SPACE_MD)
+
         # Preset buttons reference the study's own input columns (from
         # metadata) — never literal parameter names — so they read naturally
         # for whatever template is loaded (AOA/Velocity for External Aero).
@@ -71,14 +91,22 @@ class ChartsPanel(QWidget):
                               (f"L/D vs {sx}", (sx, "L/D", px))):
             b = QPushButton(label)
             b.clicked.connect(lambda _, p=preset: self._preset(*p))
-            bar.addWidget(b)
-        bar.addStretch(1)
-        png = QPushButton("Export PNG…")
-        png.clicked.connect(self._export)
-        bar.addWidget(png)
+            tb.addWidget(b)
 
+        tb.addStretch(1)
+
+        png = QPushButton("Export PNG…")
+        png.setIcon(make_icon("export", theme.TEXT_DIM))
+        png.setIconSize(QSize(theme.TOOLBAR_ICON_SIZE, theme.TOOLBAR_ICON_SIZE))
+        png.clicked.connect(self._export)
+        tb.addWidget(png)
+
+        # ---- Chart (dominant) ------------------------------------------- #
         self.plot = pg.PlotWidget()
-        self.plot.showGrid(x=True, y=True, alpha=0.25)
+        self.plot.showGrid(x=True, y=True, alpha=0.2)
+        self.plot.setLabel("bottom", "")
+        self.plot.setLabel("left", "")
+        self.plot.setTitle("")
         self.legend = self.plot.addLegend(offset=(-10, 10))
         self.hover = pg.TextItem("", anchor=(0, 1),
                                  color=theme.TEXT, fill=(30, 32, 36, 220))
@@ -89,10 +117,37 @@ class ChartsPanel(QWidget):
         self._proxy = pg.SignalProxy(self.plot.scene().sigMouseMoved,
                                      rateLimit=25, slot=self._mouse_moved)
 
+        # ---- Empty state ------------------------------------------------ #
+        empty_icon = make_icon("results", theme.TEXT_DIM, 48)
+        self._empty_widget = QWidget()
+        empty_lay = QVBoxLayout(self._empty_widget)
+        empty_lay.setAlignment(Qt.AlignCenter)
+        if empty_icon:
+            ic_lbl = QLabel()
+            ic_lbl.setPixmap(empty_icon.pixmap(48, 48))
+            ic_lbl.setAlignment(Qt.AlignCenter)
+            empty_lay.addWidget(ic_lbl)
+        title_lbl = QLabel("No Result Data")
+        title_lbl.setProperty("chartEmptyTitle", True)
+        title_lbl.setAlignment(Qt.AlignCenter)
+        empty_lay.addWidget(title_lbl)
+        hint_lbl = QLabel("Run a study to populate engineering plots.")
+        hint_lbl.setProperty("chartEmptyHint", True)
+        hint_lbl.setAlignment(Qt.AlignCenter)
+        empty_lay.addWidget(hint_lbl)
+
+        # ---- Stack: plot vs empty --------------------------------------- #
+        self._content_stack = QStackedLayout()
+        self._content_stack.addWidget(self.plot)         # index 0
+        self._content_stack.addWidget(self._empty_widget) # index 1
+
+        # ---- Assemble -------------------------------------------------- #
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(6, 6, 6, 6)
-        lay.addLayout(bar)
-        lay.addWidget(self.plot)
+        lay.setContentsMargins(theme.SPACE_SM, theme.SPACE_SM,
+                               theme.SPACE_SM, theme.SPACE_SM)
+        lay.setSpacing(theme.SPACE_SM)
+        lay.addWidget(toolbar)
+        lay.addLayout(self._content_stack, 1)
 
         state.projectLoaded.connect(self._rebuild_axes)
         state.datasetChanged.connect(self.refresh)
@@ -129,6 +184,7 @@ class ChartsPanel(QWidget):
         self.legend.clear()
         self._points.clear()
         if not x or not y:
+            self._content_stack.setCurrentIndex(1)
             return
         groups = series_groups(self.state.df, x, y, c)
         for i, (label, xs, ys, ids) in enumerate(groups):
@@ -141,6 +197,7 @@ class ChartsPanel(QWidget):
         self.plot.setLabel("bottom", x)
         self.plot.setLabel("left", y)
         self.plot.setTitle(f"{y} vs {x}" + (f"  ·  by {c}" if c else ""))
+        self._content_stack.setCurrentIndex(0 if self._points else 1)
 
     def point_count(self) -> int:            # used by the smoke test
         return len(self._points)
