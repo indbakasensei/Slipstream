@@ -27,11 +27,44 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from PySide6.QtCore import Qt                         # noqa: E402
+from PySide6.QtGui import QFontDatabase               # noqa: E402
 from PySide6.QtWidgets import QApplication            # noqa: E402
 
 from gui.main_window import MainWindow                # noqa: E402
 from gui.theme import apply_theme                     # noqa: E402
 from tools.make_experiment_template import build_template  # noqa: E402
+
+
+def _load_offscreen_fonts() -> None:
+    """Load system fonts from disk for offscreen rendering.
+
+    The Qt offscreen QPA cannot enumerate system fonts, so every glyph
+    renders as □.  Loading the actual .ttf files via
+    ``QFontDatabase.addApplicationFont`` makes the same typefaces
+    (Segoe UI, Arial, Cascadia Code) available for capture without
+    changing the application's own font configuration.  This is a
+    capture-time fix only — the running app on a real display never
+    needs it.
+    """
+    import glob as _glob
+    import sys as _sys
+    candidates = {
+        "Segoe UI": ["segoeui.ttf"],
+        "Arial":    ["arial.ttf"],
+        "Cascadia Code": ["CascadiaCode.ttf", "CascadiaCode-Regular.ttf"],
+    }
+    if _sys.platform == "win32":
+        font_dir = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+    elif _sys.platform == "darwin":
+        font_dir = "/Library/Fonts"
+    else:
+        font_dir = "/usr/share/fonts"
+    for _family, names in candidates.items():
+        for name in names:
+            path = os.path.join(font_dir, name)
+            if os.path.isfile(path):
+                QFontDatabase.addApplicationFont(path)
+                break
 
 # A config-less MainWindow defers a *modal* project-selector dialog via
 # QTimer.singleShot(0, self._open_project_selector) — the bound method is
@@ -88,6 +121,7 @@ def _save(widget, name: str) -> None:
 
 def main() -> int:
     app = QApplication.instance() or QApplication([])
+    _load_offscreen_fonts()
     apply_theme(app)
 
     # -- 1. Startup / no-project (empty state) ----------------------------

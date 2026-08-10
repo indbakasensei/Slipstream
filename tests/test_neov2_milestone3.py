@@ -82,6 +82,31 @@ def test_params_panel_still_scrolls_and_min_width(qapp):
         assert hasattr(panel, name)
 
 
+def test_params_wbp_rows_have_metadata_parity(qapp):
+    """WBP rows get the same label/field hierarchy as study rows; a WBP column
+    that matches a declared study parameter is rendered with full metadata."""
+    from gui.panels.params_panel import ParamsPanel
+    st = _state_for(EXTERNAL_AERODYNAMICS)
+    st.wbp_names = ["FlapAngle", "aoa"]
+    panel = ParamsPanel(st)
+    panel._rebuild_wbp()
+    assert set(panel._wbp_spins) == {"FlapAngle", "aoa"}
+    assert set(panel._wbp_fields) == {"FlapAngle", "aoa"}
+    # Free WBP parameter → neutral caption, plain (unbounded) spin.
+    free = panel._wbp_spins["FlapAngle"]
+    assert free.minimum() == -1e6 and free.maximum() == 1e6
+    assert free.toolTip() == "FlapAngle — free Workbench parameter (no metadata bounds)."
+    # WBP name that also is a study parameter → metadata bounds + tooltip.
+    aoa = panel._wbp_spins["aoa"]
+    assert aoa.minimum() == -90.0 and aoa.maximum() == 90.0
+    assert "Range: -90 to 90 deg" in aoa.toolTip()
+    # Both rows are registered in the form, and values flow through the same
+    # public edit path (_load_row / _apply use these exact spins).
+    assert panel.form.rowCount() == 1 + len(panel._sel_rows) + 2
+    panel._wbp_spins["aoa"].setValue(5.0)
+    assert panel._wbp_spins["aoa"].value() == 5.0
+
+
 # --------------------------------------------------------------------- #
 # Images — metadata readout + empty state
 # --------------------------------------------------------------------- #
@@ -160,6 +185,33 @@ def test_console_mapped_command_emits_signal(qapp):
     c._run_command()
     assert fired == [True]
     assert "slipstream" in c.text.toPlainText()     # echoed the prompt
+    assert "<span" not in c.text.toPlainText()      # echo is rendered, not raw HTML
+
+
+def test_console_follows_bottom_only_when_at_bottom(qapp):
+    """Auto-scroll follows the live output only while the user is at the
+    bottom; an upward-scrolled view is not yanked back per new line."""
+    from gui.panels.console import ConsolePanel
+    c = ConsolePanel()
+    c.resize(420, 140)
+    c.show()
+    qapp.processEvents()
+    for i in range(400):
+        c.append(f"line {i}")
+    qapp.processEvents()
+    sb = c.text.verticalScrollBar()
+    assert sb.maximum() > 0                          # output exceeds the viewport
+    sb.setValue(0)                                   # user scrolled to the top
+    qapp.processEvents()
+    c.append("scrolled-up append")
+    qapp.processEvents()
+    assert sb.value() == 0                           # NOT yanked to the bottom
+    sb.setValue(sb.maximum())                        # user follows the live bottom
+    qapp.processEvents()
+    c.append("bottom append")
+    qapp.processEvents()
+    assert sb.value() == sb.maximum()                # kept pinned to the bottom
+    assert c.text.blockCount() <= 4000               # cap preserved
 
 
 def test_console_mock_on_off_and_toggle(qapp):

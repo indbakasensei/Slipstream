@@ -139,22 +139,39 @@ class ImagesPanel(QWidget):
         split.setChildrenCollapsible(False)
 
         # -- empty state --------------------------------------------------- #
+        # A centered engineering placeholder: painted icon, eyebrow caption,
+        # title, and a wrapping hint — same vertical rhythm (SPACE_MD) as the
+        # dashboard/charts empty states. Purely presentational.
         self._empty = QWidget()
         el = QVBoxLayout(self._empty)
         el.setAlignment(Qt.AlignCenter)
-        ic = make_icon("images", theme.TEXT_DIM, 48)
+        el.setContentsMargins(theme.PANEL_MARGIN, theme.SPACE_LG,
+                              theme.PANEL_MARGIN, theme.SPACE_LG)
+        el.setSpacing(theme.SPACE_MD)
+
+        ic = make_icon("images", theme.TEXT_DIM, 56)
         if ic is not None:
             ic_lbl = QLabel()
-            ic_lbl.setPixmap(ic.pixmap(48, 48))
+            ic_lbl.setPixmap(ic.pixmap(56, 56))
             ic_lbl.setAlignment(Qt.AlignCenter)
             el.addWidget(ic_lbl)
+
+        eyebrow = QLabel("Case Visualization")
+        eyebrow.setProperty("imageMetaCaption", True)
+        eyebrow.setAlignment(Qt.AlignCenter)
+        el.addWidget(eyebrow)
+
         t_lbl = QLabel("No Image Available")
         t_lbl.setProperty("imageEmptyTitle", True)
         t_lbl.setAlignment(Qt.AlignCenter)
         el.addWidget(t_lbl)
-        h_lbl = QLabel("Open or generate a study image to inspect geometry.")
+
+        h_lbl = QLabel("Run a study and select a case to inspect its "
+                       "geometry, mesh and contour images.")
         h_lbl.setProperty("imageEmptyHint", True)
         h_lbl.setAlignment(Qt.AlignCenter)
+        h_lbl.setWordWrap(True)
+        h_lbl.setMaximumWidth(340)
         el.addWidget(h_lbl)
 
         self._stack = QStackedLayout()

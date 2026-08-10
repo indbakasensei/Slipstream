@@ -143,8 +143,8 @@ class ChartsPanel(QWidget):
 
         # ---- Assemble -------------------------------------------------- #
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(theme.SPACE_SM, theme.SPACE_SM,
-                               theme.SPACE_SM, theme.SPACE_SM)
+        lay.setContentsMargins(theme.PANEL_MARGIN, theme.PANEL_MARGIN,
+                               theme.PANEL_MARGIN, theme.PANEL_MARGIN)
         lay.setSpacing(theme.SPACE_SM)
         lay.addWidget(toolbar)
         lay.addLayout(self._content_stack, 1)

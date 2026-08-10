@@ -51,11 +51,37 @@ def _meta_caption(pdef) -> str:
     return "  ·  ".join(parts)
 
 
+def _row_label(text: str, caption: str) -> QWidget:
+    """A parameter label column: display name over a dim metadata caption.
+
+    Shared by study-parameter rows (name + range) and free Workbench rows
+    (name + neutral descriptor) so both columns have the identical
+    hierarchy. ``text`` is data-driven (a parameter display name or a WBP
+    column name) — never a hardcoded domain label.
+    """
+    name = QLabel(text)
+    name.setProperty("paramName", True)
+    lbl = QWidget()
+    ll = QVBoxLayout(lbl)
+    ll.setContentsMargins(0, 0, 0, 0)
+    ll.setSpacing(theme.SPACE_XS)
+    ll.addWidget(name)
+    cap = QLabel(caption)
+    cap.setProperty("paramMeta", True)
+    ll.addWidget(cap)
+    ll.addStretch(1)
+    return lbl
+
+
 class ParamsPanel(QWidget):
     def __init__(self, state: AppState, parent=None):
         super().__init__(parent)
         self.state = state
         self._wbp_spins: Dict[str, QDoubleSpinBox] = {}
+        # The widget each WBP row actually registered in the form (the spin for
+        # free WBP rows, the spin+caption cell for metadata-backed ones) — used
+        # to remove rows by widget on rebuild. Presentation only.
+        self._wbp_fields: Dict[str, QWidget] = {}
         self._sel_rows: List[_Row] = []
         self._add_rows: List[_Row] = []
 
@@ -146,16 +172,7 @@ class ParamsPanel(QWidget):
         pdef = sp.parameter
         spin = param_render.make_spin(pdef, value=value)
 
-        name = QLabel(sp.display_name)
-        name.setProperty("paramName", True)
-        lbl = QWidget(); ll = QVBoxLayout(lbl)
-        ll.setContentsMargins(0, 0, 0, 0)
-        ll.setSpacing(theme.SPACE_XS)
-        ll.addWidget(name)
-        rng = QLabel(param_render.range_text(pdef))
-        rng.setProperty("paramMeta", True)
-        ll.addWidget(rng)
-        ll.addStretch(1)
+        lbl = _row_label(sp.display_name, param_render.range_text(pdef))
 
         field = QWidget(); fl = QVBoxLayout(field)
         fl.setContentsMargins(0, 0, 0, 0)
@@ -169,14 +186,33 @@ class ParamsPanel(QWidget):
         return lbl, spin, field
 
     def _rebuild_wbp(self) -> None:
-        for spin in self._wbp_spins.values():
-            self.form.removeRow(spin)
+        """(Re)build the free Workbench-parameter rows. Presentation only.
+
+        A WBP column that also matches a declared study parameter is rendered
+        with the *full* metadata hierarchy (name · range · unit · default) via
+        ``_build_row``; a genuinely free WBP parameter gets the same
+        label/caption structure with a neutral descriptor (it carries no
+        ParameterDefinition). Neither path hardcodes a parameter name — both
+        are keyed by the workbook's own WBP column names.
+        """
+        for field in self._wbp_fields.values():
+            self.form.removeRow(field)
+        self._wbp_fields.clear()
         self._wbp_spins.clear()
+        by_name = {p.name: p for p in self.state.input_parameters()}
         for name in self.state.wbp_names:
-            spin = param_render.plain_spin(tooltip=f"{name} — free Workbench "
-                                           f"parameter (no metadata bounds).")
+            sp = by_name.get(name)
+            if sp is not None:
+                lbl, spin, field = self._build_row(sp)
+            else:
+                spin = param_render.plain_spin(
+                    tooltip=f"{name} — free Workbench parameter "
+                            f"(no metadata bounds).")
+                lbl = _row_label(name, "Workbench parameter · free value")
+                field = spin
             self._wbp_spins[name] = spin
-            self.form.insertRow(self.form.rowCount(), f"{name} (WBP)", spin)
+            self._wbp_fields[name] = field
+            self.form.insertRow(self.form.rowCount(), lbl, field)
 
     def _load_row(self, row: int) -> None:
         df = self.state.df

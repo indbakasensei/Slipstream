@@ -123,14 +123,31 @@ class ConsolePanel(QWidget):
 
     # ------------------------------------------------------------------ #
     def _line(self, text: str, color: str) -> None:
-        self.text.appendHtml(f'<span style="color:{color}">{html.escape(text)}</span>')
-        sb = self.text.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        self._append_html(f'<span style="color:{color}">{html.escape(text)}</span>')
 
     def _echo(self, raw: str) -> None:
-        self._line(
-            f'{_PROMPT} <span style="color:{theme.CONSOLE_TEXT}">'
-            f'{html.escape(raw)}</span>', theme.CONSOLE_PROMPT)
+        """Echo the typed command: accent prompt + body-coloured command text.
+
+        Builds its own escaped HTML on purpose — going through ``_line``'s
+        escaping would render the markup literally in the output.
+        """
+        self._append_html(
+            f'<span style="color:{theme.CONSOLE_PROMPT}">{html.escape(_PROMPT)}</span> '
+            f'<span style="color:{theme.CONSOLE_TEXT}">{html.escape(raw)}</span>')
+
+    def _append_html(self, fragment: str) -> None:
+        """Append one pre-escaped HTML line with *follow-the-bottom* scrolling.
+
+        The view is kept pinned to the live output only while the user is
+        already at the bottom; an upward-scrolled user is never yanked back to
+        the newest line. The 4000-line cap is enforced by ``QPlainTextEdit``
+        (``maximumBlockCount``) and unchanged.
+        """
+        sb = self.text.verticalScrollBar()
+        follow = sb.value() >= sb.maximum() - 2
+        self.text.appendHtml(fragment)
+        if follow:
+            sb.setValue(sb.maximum())
 
     def _run_command(self) -> None:
         raw = self.input.text().strip()
