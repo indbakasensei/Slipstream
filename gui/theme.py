@@ -122,6 +122,11 @@ PAGE_HEADER_HEIGHT = 54   # workspace header above the center stack
 TOOLBAR_ICON_SIZE = 18    # standard icon canvas for toolbar / nav
 
 # ===========================================================================
+# ADAPTIVE WORKSPACE — workspace-header layout toggles (Stage 5; additive)
+# ===========================================================================
+HEADER_TOGGLE_SIZE = 28   # compact Queue / Focus toggle button in the header
+
+# ===========================================================================
 # DASHBOARD REVOLUTION — hero / KPI / activity / quick-action tokens (v2.2;
 # additive; no existing token was changed)
 # ===========================================================================
@@ -475,6 +480,17 @@ QWidget[pageHeader="true"] {{ background: {BG_PANEL};
 QLabel[mockBanner="true"] {{ background: {WARNING_SURFACE}; color: {WARNING_TEXT};
     font-weight: 700; font-size: {FONT_SIZE_SMALL}px; letter-spacing: 0.4px;
     padding: 5px 8px; border-bottom: 1px solid {BORDER_STRONG}; }}
+
+/* ---- adaptive workspace: header layout toggles (Stage 5) ---------------- */
+QPushButton[headerToggle="true"] {{ background: transparent;
+    border: 1px solid {BORDER}; border-radius: {RADIUS_SM}px;
+    padding: 0; color: {TEXT_DIM}; }}
+QPushButton[headerToggle="true"]:hover {{ background: {BG_HOVER};
+    border-color: {BORDER_STRONG}; }}
+QPushButton[headerToggle="true"][active="true"] {{ background: {ACCENT_DIM};
+    border-color: {ACCENT_DIM}; color: {ACCENT}; }}
+QPushButton[headerToggle="true"]:disabled {{ color: {TEXT_FAINT};
+    background: transparent; border-color: {BORDER}; }}
 
 /* ---- engineering terminal (log + console) ----------------------------- */
 QLabel[levelChip="true"] {{ font-family: {FONT_MONO}; font-weight: 700;

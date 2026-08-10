@@ -34,7 +34,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, Optional, Set
+from typing import Dict, List, Optional, Set
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
@@ -77,6 +77,15 @@ class MainWindow(QMainWindow):
 
         self.state = AppState()
         self.worker: Optional[EngineWorker] = None
+
+        # Stage 5 — Adaptive Workspace state. The Queue is visible by default;
+        # collapse is user-initiated only (never automatic on resize). Focus
+        # Mode hides secondary/utility UI and restores the exact previous
+        # layout on exit.
+        self._queue_collapsed = False
+        self._queue_prev_sizes: Optional[List[int]] = None
+        self._focus_mode = False
+        self._focus_saved: Optional[dict] = None
 
         # -- panels -------------------------------------------------------#
         self.dashboard = DashboardPanel(self.state)
@@ -129,8 +138,10 @@ class MainWindow(QMainWindow):
             self.tabs.addWidget(page)
 
         # Neo (v2.1): workspace chrome above the page stack — page title +
-        # project/template/schedule context line.
+        # project/template/schedule context line. Stage 5: the header also
+        # carries the Queue + Focus toggles; Queue is visible by default.
         self.workspace_header = WorkspaceHeader()
+        self.workspace_header.set_queue_visible(True)
         center_content = QWidget()
         cv = QVBoxLayout(center_content)
         cv.setContentsMargins(0, 0, 0, 0)
@@ -210,6 +221,9 @@ class MainWindow(QMainWindow):
         bar project/template/mode readouts in sync with the loaded state."""
         st = self.state
         has_project = st.cfg is not None
+        # Stage 5: Focus Mode requires a loaded project (the empty state has
+        # no primary workspace to maximize).
+        self.workspace_header.set_focus_enabled(has_project)
         self._center_stack.setCurrentIndex(1 if has_project else 0)
         if has_project:
             project = st.config_path.stem if st.config_path else ""
@@ -417,6 +431,10 @@ class MainWindow(QMainWindow):
         self.console.mockSet.connect(self._on_mock_toggled)
         self.console.mockToggleRequested.connect(self._toggle_mock)
 
+        # Stage 5 — Adaptive Workspace: Queue collapse + Focus Mode toggles.
+        self.workspace_header.queueToggleRequested.connect(self.toggle_queue)
+        self.workspace_header.focusToggleRequested.connect(self.toggle_focus_mode)
+
     # ------------------------------------------------------------------ #
     # Mock-mode UI sync (toolbar highlight + banner + window title)
     # ------------------------------------------------------------------ #
@@ -606,6 +624,108 @@ class MainWindow(QMainWindow):
             "Local-first CFD study manager for ANSYS Workbench + Fluent.<br>"
             "Engine: cfdauto · GUI: PySide6 + pyqtgraph.<br>"
             "Free · open source · no telemetry.")
+
+    # ------------------------------------------------------------------ #
+    # Stage 5 — Adaptive Workspace: Queue collapse
+    # ------------------------------------------------------------------ #
+    @property
+    def queue_collapsed(self) -> bool:
+        """True while the Queue panel is hidden (user-initiated only)."""
+        return self._queue_collapsed
+
+    def toggle_queue(self) -> None:
+        """Show/hide the Queue panel.
+
+        Hiding reclaims its horizontal splitter space for the center
+        workspace (the splitter redistributes to the flexible center).
+        Restoring brings the Queue back at its previous width — never the
+        old fixed 30% rule.
+        """
+        if self._queue_collapsed:
+            self._restore_queue()
+        else:
+            self._collapse_queue()
+
+    def _collapse_queue(self) -> None:
+        if self._queue_collapsed:
+            return
+        # Remember the splitter geometry so a restore returns to the exact
+        # pre-collapse layout (Queue at its previous width).
+        self._queue_prev_sizes = list(self.splitter.sizes())
+        self.queue.hide()
+        self._queue_collapsed = True
+        self.workspace_header.set_queue_visible(False)
+
+    def _restore_queue(self) -> None:
+        if not self._queue_collapsed:
+            return
+        self.queue.show()
+        self._queue_collapsed = False
+        if self._queue_prev_sizes and len(self._queue_prev_sizes) == 3:
+            self.splitter.setSizes(self._queue_prev_sizes)
+        self._queue_prev_sizes = None
+        self.workspace_header.set_queue_visible(True)
+
+    # ------------------------------------------------------------------ #
+    # Stage 5 — Adaptive Workspace: Focus Mode
+    # ------------------------------------------------------------------ #
+    @property
+    def focus_mode(self) -> bool:
+        """True while Focus Mode is active (secondary/utility UI hidden)."""
+        return self._focus_mode
+
+    def toggle_focus_mode(self) -> None:
+        """Enter or exit presentation-level Focus Mode.
+
+        Enter: hide Sidebar, Queue, and every dock so the current primary
+        workspace (Dashboard / Charts / Images / Monitor) gets the full
+        window. Exit: restore the exact previous layout state.
+        """
+        if self._focus_mode:
+            self._exit_focus_mode()
+        else:
+            self._enter_focus_mode()
+
+    def _enter_focus_mode(self) -> None:
+        if self._focus_mode or not self.state.cfg:
+            return
+        # Snapshot the exact layout we must return to on exit. Dock state is
+        # captured with isVisible() because only the raised tab of a tabified
+        # group reads as visible — that is precisely what must come back.
+        self._focus_saved = {
+            "queue_collapsed": self._queue_collapsed,
+            "sidebar_visible": self.sidebar.isVisible(),
+            "docks": {name: d.isVisible() for name, d in self._docks.items()},
+        }
+        # Hide everything secondary/utility; the Queue collapses first so the
+        # splitter records its pre-focus width for exact restoration.
+        if not self._queue_collapsed:
+            self._collapse_queue()
+        self.sidebar.hide()
+        for d in self._docks.values():
+            d.hide()
+        self._focus_mode = True
+        self.workspace_header.set_focus_active(True)
+
+    def _exit_focus_mode(self) -> None:
+        if not self._focus_mode:
+            return
+        saved = self._focus_saved or {}
+        # Restore in dependency order: sidebar back first (the splitter needs
+        # it visible before re-applying the pre-focus geometry), then Queue.
+        if saved.get("sidebar_visible"):
+            self.sidebar.show()
+        if saved.get("queue_collapsed"):
+            self.queue.hide()
+            self._queue_collapsed = True
+        else:
+            self._restore_queue()
+        dock_state = saved.get("docks", {})
+        for name, d in self._docks.items():
+            d.setVisible(bool(dock_state.get(name)))
+        self._focus_mode = False
+        self._focus_saved = None
+        self.workspace_header.set_focus_active(False)
 
     # ------------------------------------------------------------------ #
     def closeEvent(self, e) -> None:

@@ -300,6 +300,88 @@ prints "batch running" / "batch idle" status lines to the console.
 Design tokens: `CONSOLE_BG` (#141519), `CONSOLE_TEXT` (#c9cdd6),
 `CONSOLE_PROMPT` (ACCENT), QSS for `[console="true"]` and `[consoleInput="true"]`.
 
+## 8f. Adaptive Workspace (Stage 5)
+
+Slipstream behaves like a professional engineering workstation: the **primary
+engineering task is always visually dominant**, and secondary UI never
+permanently starves it of space. This is the *workspace-allocation* layer that
+sits on top of the existing `QSplitter` / `QStackedWidget` / `QDockWidget`
+architecture — no new docking framework, no floating-window model.
+
+### Panel classification
+
+| Panel | Class | Behaviour |
+|---|---|---|
+| Dashboard | PRIMARY WORKSPACE | always gets the flexible center space |
+| Charts | PRIMARY WORKSPACE + Focus | plot dominates; Focus Mode maximizes it |
+| Images | PRIMARY WORKSPACE + Focus | viewer dominates; Focus Mode maximizes it |
+| Results | PRIMARY WORKSPACE | full-width table |
+| Queue | SECONDARY-COLLAPSIBLE | user-initiated hide/show via the header toggle |
+| Parameters | SECONDARY-COLLAPSIBLE | right dock, hidden by default, View-menu toggle |
+| Monitor | SECONDARY-COLLAPSIBLE | right dock, hidden by default, View-menu toggle |
+| Log / Statistics / Console | UTILITY | bottom docks, View-menu toggle |
+
+### Queue collapse
+
+- The Queue is **visible by default** — existing workflow is unchanged.
+- The header's Queue toggle (`queue_btn`, icon = queue) hides it on click; the
+  freed horizontal space is reclaimed by the center workspace because the
+  splitter gives the center the flexible stretch factor.
+- Restoring returns the Queue at its **previous width** (the splitter geometry
+  is captured at collapse), never the old fixed 30% rule.
+- Collapse is **user-initiated only** — window resizing never hides the Queue.
+
+### Focus Mode
+
+The header's Focus toggle (`focus_btn`, icon = zoom) is presentation-only:
+
+- **Enter** hides Sidebar, Queue, and every dock so the current primary
+  workspace (Dashboard / Charts / Images / Monitor) receives the full window.
+- **Exit restores the exact previous layout state** — which Queue state
+  (visible/collapsed), which sidebar state, and the per-dock visibility map
+  (including which tab of a tabified group was raised).
+- The tooltip is page-aware: *Focus Charts*, *Focus Images*, *Focus Monitor*,
+  *Focus Workspace*. The button is disabled until a project is loaded.
+- While Focus is active the Queue toggle is disabled (the Queue is managed by
+  Focus Mode) and the focus button reads *"Exit Focus Mode"*.
+
+### State restoration rules
+
+- Queue collapsed before Focus → stays collapsed after Focus exit.
+- Queue visible before Focus → returns visible at its previous width.
+- Monitor / Parameters / Console open before Focus → return open after exit;
+  closed before → stay closed.
+- No automatic panel hiding based purely on window resizing.
+
+### Responsive rules
+
+There are **no aggressive automatic breakpoints**. The transition from
+"wide with Queue" to "center-only" is driven by the user's Queue toggle, not by
+a resize listener. The shared minimum-width floors (`MIN_SIDEBAR_WIDTH`,
+`MIN_CENTER_WIDTH`, `MIN_QUEUE_WIDTH`) keep every region usable at narrow
+widths; long content scrolls rather than being clipped.
+
+### Scroll behaviour
+
+Unchanged from earlier stages — only naturally-long content scrolls:
+
+- Monitor / Parameters → `QScrollArea`; Queue → native table scrolling;
+- Console / Log → `QPlainTextEdit`.
+- Dashboard, Charts, Images do **not** scroll the whole page; their content
+  scales with the container.
+
+### Public API (additive)
+
+`MainWindow.toggle_queue()` · `MainWindow.queue_collapsed` ·
+`MainWindow.toggle_focus_mode()` · `MainWindow.focus_mode` ·
+`WorkspaceHeader.queueToggleRequested` · `focusToggleRequested` ·
+`set_queue_visible()` · `set_focus_active()` · `set_focus_enabled()` ·
+`set_focus_label()`. Every pre-existing attribute, signal, and test contract is
+preserved.
+
+Design tokens: `HEADER_TOGGLE_SIZE` (28), QSS role `[headerToggle="true"]`
+(compact ghost button, accent-tinted while active).
+
 ## 9. Motion & performance
 
 Motion is subtle and cheap: hover/selection/focus state changes and
