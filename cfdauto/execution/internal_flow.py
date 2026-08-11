@@ -157,10 +157,16 @@ class InternalFlowExecutionStrategy(ExecutionStrategy):
             metrics[m.name] = MetricValue(
                 m.name, None if v is None else round(float(v), 6), m.unit)
 
+        # Phase 8B: attach the template + case identity so the result
+        # serializes through the *generic* CaseResult path (template id,
+        # parameters, template-defined metrics, bookkeeping) — never the
+        # airfoil-shaped legacy shape.
         res = CaseResult(
             metrics=metrics, iterations=1, converged=True,
             started=started, finished=datetime.now(),
-            mesh_file=str(mesh or ""), artifact_dir=str(case_dir))
+            mesh_file=str(mesh or ""), artifact_dir=str(case_dir),
+            template=context.template, case_id=experiment.case_id,
+            parameters=experiment.parameters_dict())
         return res
 
     # -- mesh phase (mirrors ExternalAerodynamics, geometry-only key) --- #

@@ -23,6 +23,20 @@ serialization, and every existing caller keep working unchanged; the
 result-JSON produced is byte-identical to before. See
 ``docs/PLATFORM_ARCHITECTURE.md`` for the migration plan and the eventual
 removal of the legacy accessors.
+
+Generic result model (Phase 8B)
+-------------------------------
+A template-attached :class:`CaseResult` serializes generically: its metrics
+are keyed by the template's declared metric names (no domain assumption),
+and the payload carries the template id, ``case_id``, input ``parameters``,
+per-metric ``{value, unit, status}``, and run ``bookkeeping`` — see
+:meth:`CaseResult.to_json_dict` / :meth:`CaseResult.from_json_dict`.
+Template-less results keep the pre-Phase-8B shape byte-identically
+(including the ``cl``/``cd``/``lift_n``/``drag_n`` keys), so existing
+project result files stay readable. The ``lift_n``/``drag_n`` compatibility
+accessor names are aliased to the template's ``lift``/``drag`` metric names
+when a template is attached, keeping the generic representation
+template-defined while the legacy callers keep working.
 """
 
 from __future__ import annotations
@@ -65,6 +79,12 @@ class ParameterValue:
 # own unit so display code never has to special-case which metric it is.
 _METRIC_UNITS = {"cl": "", "cd": "", "lift_n": "N", "drag_n": "N"}
 
+# Legacy accessor names → template metric names (Phase 8B). When a template
+# is attached (External Aerodynamics declares ``lift`` / ``drag``), these
+# aliases let the legacy accessors read/write the template-defined metrics so
+# the generic representation is never airfoil-shaped.
+_LEGACY_METRIC_ALIASES = {"lift_n": "lift", "drag_n": "drag"}
+
 
 @dataclass
 class MetricValue:
@@ -78,6 +98,22 @@ class MetricValue:
     value: Optional[float] = None
     unit: str = ""
     status: str = "computed"      # computed | pending | failed
+
+
+def _parse_dt(value: Any) -> Optional[datetime]:
+    """Parse an ISO-8601 datetime string back to :class:`datetime`
+    (None-safe; non-string inputs pass through unchanged)."""
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return value
+
+
+def _fmt_value(value: Optional[float]) -> str:
+    """A compact ``repr`` string for a metric value (None-safe)."""
+    return "None" if value is None else f"{value:g}"
 
 
 # --------------------------------------------------------------------------- #
@@ -269,14 +305,23 @@ class Experiment:
 # CaseResult — outputs (metrics authoritative; legacy fields are accessors)
 # --------------------------------------------------------------------------- #
 class CaseResult:
-    """Everything extracted from one converged (or failed) Fluent run.
+    """Everything extracted from one converged (or failed) CFD run.
 
-    The physical result quantities (``cl``, ``cd``, ``lift_n``, ``drag_n``)
-    are stored generically in ``self.metrics`` (a dict of
-    :class:`MetricValue`); the same-named attributes are compatibility
-    accessors over that dict. Run bookkeeping (``iterations``,
-    ``converged``, ``error``, timestamps, paths) stays as plain attributes —
-    it is not a physical metric.
+    The physical result quantities are stored generically in ``self.metrics``
+    (a dict of :class:`MetricValue`); the airfoil-named attributes (``cl``,
+    ``cd``, ``lift_n``, ``drag_n``) are compatibility accessors over that
+    dict. Run bookkeeping (``iterations``, ``converged``, ``error``,
+    timestamps, paths) stays as plain attributes — it is not a physical
+    metric.
+
+    Phase 8B: a ``template`` may be attached. When present, the generic
+    representation uses the template's *declared* metric names (External
+    Aerodynamics' ``cl``/``cd``/``lift``/``drag``, Internal Flow's
+    ``pressure_drop``/``reynolds_number``/``friction_factor``, …) — never a
+    hard-coded CL/CD/Lift/Drag — and serialization/deserialization are
+    generic. When absent, the legacy airfoil shape (including the exact
+    legacy JSON) is preserved byte-identically, so existing project result
+    files stay readable.
     """
 
     def __init__(self, cl: Optional[float] = None, cd: Optional[float] = None,
@@ -284,14 +329,28 @@ class CaseResult:
                  iterations: int = 0, converged: bool = False, error: str = "",
                  started: Optional[datetime] = None,
                  finished: Optional[datetime] = None, mesh_file: str = "",
-                 artifact_dir: str = "", *,
-                 metrics: Optional[Dict[str, "MetricValue"]] = None) -> None:
+                 artifact_dir: str = "",
+                 metrics: Optional[Dict[str, "MetricValue"]] = None, *,
+                 template: Optional[Any] = None, case_id: str = "",
+                 parameters: Optional[Dict[str, float]] = None) -> None:
+        # Phase 8B: a template may be attached — when present, the generic
+        # representation and serialization use the template's declared metric
+        # names; when absent, the legacy airfoil shape is byte-identical.
+        # case_id / parameters make a result self-describing with no domain
+        # field.
+        self.template = template
+        self.case_id = case_id
+        self.parameters: Dict[str, float] = dict(parameters) if parameters else {}
         self.metrics: Dict[str, MetricValue] = {}
         if metrics is not None:
             for name, mv in metrics.items():
-                self.metrics[name] = (mv if isinstance(mv, MetricValue)
-                                      else MetricValue(name, mv,
-                                                       _METRIC_UNITS.get(name, "")))
+                key = self._metric_storage_name(name)
+                if isinstance(mv, MetricValue):
+                    mv = (mv if mv.metric_id == key
+                          else MetricValue(key, mv.value, mv.unit, mv.status))
+                else:
+                    mv = MetricValue(key, float(mv), self._metric_unit_for(key))
+                self.metrics[key] = mv
         else:
             # setters populate self.metrics (always present, value maybe None)
             self.cl = cl
@@ -307,12 +366,36 @@ class CaseResult:
         self.artifact_dir = artifact_dir
 
     # -- legacy compatibility accessors (route to self.metrics) --------- #
+    def _metric_storage_name(self, name: str) -> str:
+        """The ``self.metrics`` key for a legacy accessor name.
+
+        When a template is attached, the legacy ``lift_n``/``drag_n`` names
+        are aliased to the template's declared metric names (``lift`` /
+        ``drag``) so the generic representation uses *template-defined*
+        metric keys. Without a template, the name is the storage key as-is.
+        """
+        if self.template is not None and name in _LEGACY_METRIC_ALIASES:
+            target = _LEGACY_METRIC_ALIASES[name]
+            if self.template.metric(target) is not None:
+                return target
+        return name
+
+    def _metric_unit_for(self, name: str) -> str:
+        """Display unit for a metric: the attached template's metric
+        definition when available, else the legacy hard-coded table."""
+        if self.template is not None:
+            md = self.template.metric(name)
+            if md is not None:
+                return md.unit
+        return _METRIC_UNITS.get(name, "")
+
     def _metric_value(self, name: str) -> Optional[float]:
-        mv = self.metrics.get(name)
+        mv = self.metrics.get(self._metric_storage_name(name))
         return mv.value if mv is not None else None
 
     def _set_metric(self, name: str, value: Optional[float]) -> None:
-        self.metrics[name] = MetricValue(name, value, _METRIC_UNITS.get(name, ""))
+        key = self._metric_storage_name(name)
+        self.metrics[key] = MetricValue(key, value, self._metric_unit_for(key))
 
     @property
     def cl(self) -> Optional[float]:
@@ -348,8 +431,12 @@ class CaseResult:
 
     # -- generic accessors (Phase 4) ------------------------------------ #
     def metric(self, name: str) -> Optional[MetricValue]:
-        """The :class:`MetricValue` for ``name`` (None if absent)."""
-        return self.metrics.get(name)
+        """The :class:`MetricValue` for ``name`` (None if absent).
+
+        Accepts either the template's declared metric name or a legacy
+        accessor name (``"lift_n"`` routes to the template's ``lift``
+        metric when one is attached)."""
+        return self.metrics.get(self._metric_storage_name(name))
 
     def metrics_dict(self) -> Dict[str, Optional[float]]:
         """All result metrics as a plain name→value dict."""
@@ -379,8 +466,39 @@ class CaseResult:
         return None
 
     def to_json_dict(self) -> Dict[str, Any]:
-        """Byte-identical to the former ``asdict(self)`` + derived fields:
-        same keys, same order."""
+        """A JSON-ready dict of this result.
+
+        Template-less results keep the legacy shape byte-identically (the
+        former ``asdict(self)`` + derived fields — same keys, same order).
+        Template-driven results serialize generically: the template id, case
+        id, input parameters, per-metric ``{value, unit, status}``, and run
+        bookkeeping — no domain metric is implied.
+        """
+        if self.template is None:
+            return self._legacy_to_json_dict()
+        metrics = {
+            name: {"value": mv.value, "unit": mv.unit, "status": mv.status}
+            for name, mv in sorted(self.metrics.items())
+        }
+        bookkeeping = {
+            "iterations": self.iterations, "converged": self.converged,
+            "error": self.error, "started": self.started,
+            "finished": self.finished, "mesh_file": self.mesh_file,
+            "artifact_dir": self.artifact_dir, "duration_min": self.duration_min,
+        }
+        for key in ("started", "finished"):
+            if bookkeeping[key] is not None:
+                bookkeeping[key] = bookkeeping[key].isoformat(timespec="seconds")
+        return {
+            "template": self.template.id,
+            "case_id": self.case_id,
+            "parameters": dict(sorted(self.parameters.items())),
+            "metrics": metrics,
+            "bookkeeping": bookkeeping,
+        }
+
+    def _legacy_to_json_dict(self) -> Dict[str, Any]:
+        """The pre-Phase-8B result shape — byte-identical keys and order."""
         d: Dict[str, Any] = {
             "cl": self.cl, "cd": self.cd,
             "lift_n": self.lift_n, "drag_n": self.drag_n,
@@ -397,6 +515,60 @@ class CaseResult:
                 d[key] = d[key].isoformat(timespec="seconds")
         return d
 
+    @classmethod
+    def from_json_dict(cls, data: Dict[str, Any],
+                       template: Optional[Any] = None) -> "CaseResult":
+        """Rehydrate a result from :meth:`to_json_dict`.
+
+        Template-less (legacy) payloads reconstruct the classic shape. Generic
+        payloads carry a ``template`` id — pass a ``template`` object
+        directly, or let the platform registry resolve it by id (raises
+        ``ValueError`` when the id is unknown and no object was supplied).
+        """
+        if "template" not in data:
+            return cls(
+                cl=data.get("cl"), cd=data.get("cd"),
+                lift_n=data.get("lift_n"), drag_n=data.get("drag_n"),
+                iterations=data.get("iterations", 0),
+                converged=data.get("converged", False),
+                error=data.get("error", ""),
+                started=_parse_dt(data.get("started")),
+                finished=_parse_dt(data.get("finished")),
+                mesh_file=data.get("mesh_file", ""),
+                artifact_dir=data.get("artifact_dir", ""),
+            )
+        if template is None:
+            from cfdauto.platform import get_default_registry  # lazy: no cycle
+            try:
+                template = get_default_registry().get(data["template"])
+            except LookupError as exc:
+                raise ValueError(
+                    f"Unknown template id {data['template']!r} in result "
+                    "payload; pass a template object to from_json_dict() "
+                    f"({exc})") from exc
+        metrics = {
+            name: MetricValue(name, mv.get("value"), mv.get("unit", ""),
+                              mv.get("status", "computed"))
+            for name, mv in (data.get("metrics") or {}).items()
+        }
+        bk = data.get("bookkeeping") or {}
+        return cls(
+            template=template, case_id=data.get("case_id", ""),
+            parameters=data.get("parameters"), metrics=metrics,
+            iterations=bk.get("iterations", 0),
+            converged=bk.get("converged", False), error=bk.get("error", ""),
+            started=_parse_dt(bk.get("started")),
+            finished=_parse_dt(bk.get("finished")),
+            mesh_file=bk.get("mesh_file", ""),
+            artifact_dir=bk.get("artifact_dir", ""),
+        )
+
     def __repr__(self) -> str:
-        return (f"CaseResult(cl={self.cl}, cd={self.cd}, "
-                f"iterations={self.iterations}, converged={self.converged})")
+        if self.template is None:
+            return (f"CaseResult(cl={self.cl}, cd={self.cd}, "
+                    f"iterations={self.iterations}, converged={self.converged})")
+        metrics = ", ".join(f"{name}={_fmt_value(mv.value)}"
+                            for name, mv in sorted(self.metrics.items()))
+        return (f"CaseResult(template={self.template.id!r}, "
+                f"case_id={self.case_id!r}, metrics={{{metrics}}}, "
+                f"converged={self.converged})")

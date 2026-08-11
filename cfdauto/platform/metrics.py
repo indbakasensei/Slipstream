@@ -14,6 +14,7 @@ this abstraction in Phase 1.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 # Conventional values for MetricDefinition.source — a plain string rather
 # than an enum because future templates/solvers will legitimately invent
@@ -43,6 +44,11 @@ class MetricDefinition:
         above, or a template-specific string for future solvers.
     description:
         One or two sentences for tooltips/docs.
+    output_column:
+        Phase 8B — the spreadsheet/analytics column header this metric maps
+        to (the generic output-column contract:
+        template → declared metrics → output columns). ``None`` means
+        "fall back to ``display_name``".
     """
 
     id: str
@@ -51,3 +57,4 @@ class MetricDefinition:
     unit: str = ""
     source: str = SOURCE_SOLVER_REPORT
     description: str = ""
+    output_column: Optional[str] = None

@@ -71,18 +71,23 @@ _PIPE_LENGTH = ParameterDefinition(
 # Metrics
 # --------------------------------------------------------------------------- #
 _INTERNAL_FLOW_METRICS: Tuple[MetricDefinition, ...] = (
+    # output_column is the Phase 8B generic output-column contract — the
+    # columns this template's results map to (a forward declaration; the
+    # internal-flow Excel writer lands in Phase 8C).
     MetricDefinition(
         id="pressure-drop", name="pressure_drop", display_name="Pressure Drop",
-        unit="Pa", source=SOURCE_SOLVER_REPORT,
+        unit="Pa", source=SOURCE_SOLVER_REPORT, output_column="PressureDrop_Pa",
         description="Static pressure drop between the pipe inlet and outlet."),
     MetricDefinition(
         id="reynolds-number", name="reynolds_number",
         display_name="Reynolds Number", unit="", source=SOURCE_DERIVED,
+        output_column="ReynoldsNumber",
         description="Re = rho * V * D / mu — dimensionless flow regime "
                     "indicator (laminar < ~2300, turbulent > ~4000)."),
     MetricDefinition(
         id="friction-factor", name="friction_factor",
         display_name="Friction Factor", unit="", source=SOURCE_DERIVED,
+        output_column="FrictionFactor",
         description="Darcy friction factor, from the pressure drop or "
                     "correlated against the Reynolds number (Moody chart)."),
 )

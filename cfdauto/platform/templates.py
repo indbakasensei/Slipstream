@@ -147,6 +147,22 @@ class SimulationTemplate:
         return tuple(p.name for p in self.supported_parameters
                      if p.category == "geometry" or p.workbench_parameter)
 
+    # ------------------------------------------------------------------ #
+    # Phase 8B contract: the template owns its output columns. The generic
+    # output layer asks the template for its declared metrics' columns rather
+    # than assuming a fixed CL/CD/Lift/Drag layout.
+    # ------------------------------------------------------------------ #
+    def output_columns(self) -> Tuple[Tuple[str, str], ...]:
+        """Ordered ``(metric_name, column_header)`` pairs for this template's
+        declared output metrics — the generic output-column contract.
+
+        Each header comes from the metric's declared ``output_column``,
+        falling back to its display name. The order follows
+        ``supported_metrics`` (the template's display order).
+        """
+        return tuple((m.name, m.output_column or m.display_name)
+                     for m in self.supported_metrics)
+
     def experiment_validation_problems(self, exp: Any) -> List[str]:
         """Every experiment-level validation problem for ``exp`` under this
         template's declared validation policy.
@@ -200,24 +216,31 @@ _VELOCITY = ParameterDefinition(
                 "velocity inlet (not a Workbench parameter).")
 
 _EXT_AERO_METRICS: Tuple[MetricDefinition, ...] = (
+    # output_column mirrors the legacy ColumnMap headers (CL / CD / CL/CD /
+    # Lift_N / Drag_N) — Phase 8B declares them on the metric so the generic
+    # output layer can derive the exact current columns from the template.
     MetricDefinition(
         id="lift-coefficient", name="cl", display_name="CL",
+        output_column="CL",
         description="Lift coefficient from the solver's lift report "
                     "definition, normalized by the configured reference "
                     "values."),
     MetricDefinition(
         id="drag-coefficient", name="cd", display_name="CD",
+        output_column="CD",
         description="Drag coefficient from the solver's drag report "
                     "definition."),
     MetricDefinition(
         id="lift-to-drag-ratio", name="l_over_d", display_name="L/D",
-        source=SOURCE_DERIVED,
+        output_column="CL/CD", source=SOURCE_DERIVED,
         description="Aerodynamic efficiency, CL divided by CD."),
     MetricDefinition(
         id="lift-force", name="lift", display_name="Lift", unit="N",
+        output_column="Lift_N",
         description="Wind-axis lift force on the configured wall zones."),
     MetricDefinition(
         id="drag-force", name="drag", display_name="Drag", unit="N",
+        output_column="Drag_N",
         description="Wind-axis drag force on the configured wall zones."),
 )
 

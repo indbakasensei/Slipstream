@@ -1373,3 +1373,169 @@ Phase 8A tests) stays green; no existing assertion was weakened.
 
 The Excel output system, ledger schema, analytics, orchestrator event
 payloads, and the `gui/` are **untouched** by Phase 8A.
+
+
+## 18. Phase 8B — generic outputs & metrics
+
+### 18.1 The goal
+
+Phase 8A made the *Experiment* generic. Phase 8B makes the **RESULT** generic:
+the last airfoil assumptions in the generic `CaseResult` / output layer are
+removed. Before Phase 8B, a `CaseResult` — and especially its serialized
+JSON — assumed CL/CD/Lift/Drag even for templates that have nothing to do
+with airfoils. After Phase 8B the generic output layer **asks the template**:
+
+```
+Template
+   │  supported/declarative metrics   → metric name / value / unit / status
+   ▼
+CaseResult
+   ▼
+template-defined metrics
+   ▼
+JSON / result representation
+```
+
+The platform no longer assumes every CFD study produces `CL`, `CD`, `Lift`,
+`Drag`. Those remain valid *External Aerodynamics* metrics, but they are not
+universal CFD metrics. The domain/architecture boundary is preserved exactly
+as Phase 8A drew it: the External Aero strategy and solver/extractor may
+legitimately use CL/CD/Lift/Drag — the *generic* result layer may not.
+
+### 18.2 Generic metric contract (the template owns its outputs)
+
+Templates already declared their metrics via `supported_metrics`
+(`MetricDefinition`). Phase 8B adds **one additive field** so the generic
+output layer can derive spreadsheet columns without hardcoding them:
+
+| Metric field | Meaning | Default |
+|---|---|---|
+| `output_column` | The output-column header this metric maps to (the generic output-column contract). | `None` → fall back to `display_name`. |
+
+The built-in templates declare exactly what their domains need:
+
+- **External Aerodynamics** — `cl→CL`, `cd→CD`, `l_over_d→CL/CD`,
+  `lift→Lift_N`, `drag→Drag_N`. These reproduce the legacy `ColumnMap`
+  headers byte-for-byte — a declaration, not a special case.
+- **Internal Flow** — `pressure_drop→PressureDrop_Pa`,
+  `reynolds_number→ReynoldsNumber`, `friction_factor→FrictionFactor`
+  (a forward declaration; the internal-flow Excel writer lands in 8C).
+- **The Phase 8B test-only canary** (`tests/test_phase8b_generic_metrics.py`)
+  declares arbitrary non-aero metrics (`heat_rate`, `efficiency`,
+  `vapor_fraction`) with no AOA/Velocity/CL/CD anywhere.
+
+`SimulationTemplate.output_columns()` returns the ordered
+`(metric_name, column_header)` pairs from the declared metrics — the generic
+direction is **template → declared output metrics → output columns**, not
+`ColumnMap → hardcoded CL/CD/Lift/Drag`.
+
+### 18.3 CaseResult representation
+
+A `CaseResult` now supports a dual path, mirroring the Phase 8A `Experiment`:
+
+- **Template-attached** (`template=` kwarg) — metrics are keyed by the
+  *template's declared metric names* (External Aero: `cl/cd/lift/drag`;
+  Internal Flow: `pressure_drop/reynolds_number/friction_factor`; any third
+  template: whatever it declares). `case_id` and `parameters` may be attached
+  so a result is self-describing with no domain field.
+- **Template-less (legacy)** — the airfoil shape is preserved
+  byte-identically: `metrics` keyed `cl/cd/lift_n/drag_n`, same units, and
+  `to_json_dict()` produces the exact pre-Phase-8B keys/order.
+
+The legacy accessors (`res.cl`, `res.cd`, `res.lift_n`, `res.drag_n`,
+`res.cl_over_cd`, `res.fl_over_fd`) keep working in **both** paths. When a
+template is attached, the `lift_n`/`drag_n` accessor names are **aliased** to
+the template's `lift`/`drag` metrics, so the generic representation is
+template-defined while existing callers keep reading/writing unchanged. Units
+come from the attached template's `MetricDefinition` (falling back to the
+legacy table when template-less).
+
+### 18.4 Serialization format
+
+`CaseResult.to_json_dict()` is dual-path:
+
+- **Template-attached** (generic):
+
+  ```json
+  {
+    "template": "internal-flow",
+    "case_id": "r002_inlet_velocity2",
+    "parameters": {"inlet_velocity": 2.0, "pipe_diameter": 0.05},
+    "metrics": {
+      "pressure_drop":     {"value": 711.16,  "unit": "Pa", "status": "computed"},
+      "reynolds_number":   {"value": 99620.8, "unit": "",  "status": "computed"},
+      "friction_factor":   {"value": 0.017809,"unit": "",  "status": "computed"}
+    },
+    "bookkeeping": {
+      "iterations": 120, "converged": true, "error": "",
+      "started": null, "finished": null, "mesh_file": "", "artifact_dir": "",
+      "duration_min": null
+    }
+  }
+  ```
+
+  Metric names, values, units, and statuses are preserved; metric keys are
+  emitted sorted (deterministic); datetimes serialize to ISO-8601 strings.
+- **Template-less** — the exact legacy keys in the exact legacy order:
+  `["cl","cd","lift_n","drag_n","iterations","converged","error","started",
+  "finished","mesh_file","artifact_dir","cl_over_cd","fl_over_fd",
+  "duration_min"]`.
+
+`CaseResult.from_json_dict(data, template=None)` rehydrates both paths.
+Generic payloads carry a `template` id — pass a `template` object directly,
+or the platform registry resolves it by id (an unknown id raises
+`ValueError` naming the template and suggesting to pass an object).
+
+### 18.5 External Aero compatibility path (golden regression)
+
+- Existing **template-less** `CaseResult` objects and their legacy JSON are
+  unchanged — bytes identical, so existing project result files stay readable
+  (`tests/test_generic_experiment_model.py` pins the exact key order).
+- A **template-attached** External Aero result represents the *same physical
+  values* through the generic metric dict (keyed `cl/cd/lift/drag`, units from
+  the template), serializes/deserializes generically, and round-trips.
+- The production External Aero execution path remains template-less in
+  Phase 8B, so the orchestrator's persisted result JSON is byte-identical to
+  before — migrating the External Aero *producer* to the generic shape is an
+  ​​8C concern. The generic capability is proven and tested; nothing is broken.
+
+### 18.6 Internal Flow representation
+
+`InternalFlowExecutionStrategy.execute_case` now builds its `CaseResult` with
+`template=context.template`, `case_id=experiment.case_id`, and
+`parameters=experiment.parameters_dict()`, so a genuine internal-flow result
+serializes through the generic path:
+
+```
+case_id = r002_inlet_velocity2
+metrics: pressure_drop (Pa), reynolds_number (-), friction_factor (-)
+```
+
+No `CL`/`CD`/`Lift`/`Drag` anywhere — `res.cl` is `None`, and the generic
+serialization contains no aero fields (`tests/test_phase8b_generic_metrics.py`
+§8 drives a real `execute_case` and asserts the generic shape).
+
+### 18.7 Output-column contract
+
+The generic direction is established as metadata + tests only:
+
+```
+Template.output_columns()  →  ordered (metric_name, column_header) pairs
+```
+
+Tests prove External Aero maps to the exact legacy `ColumnMap` headers and
+Internal Flow maps to its declared columns. **The Excel writer is not
+migrated** — writing generic columns to a workbook is Phase 8C.
+
+### 18.8 What Phase 8B deliberately leaves for later
+
+- **8C** generic Excel / `StudyIO` — migrate `ExcelManager` writing and the
+  workbook schema to the template's declared output columns.
+- **8D** generic results & analytics.
+- **8E** generic storage / ledger.
+- **8F** generic events + linter.
+- **8G** full registration seam / plugin discovery.
+- **8H** Internal Flow end-to-end through every downstream subsystem.
+
+The Excel output system, ledger schema, analytics, orchestrator event
+payloads, and the `gui/` are **untouched** by Phase 8B.
