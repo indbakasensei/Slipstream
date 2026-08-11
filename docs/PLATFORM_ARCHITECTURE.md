@@ -853,25 +853,21 @@ workflow"). The `SolverBackend` protocol is unchanged and ready: a real
 internal-flow Fluent adapter drops in behind it later with, again, only
 `internal_flow.py` changing.
 
-### 13.4 Bridging onto the (still airfoil-shaped) case identity
+### 13.4 Superseded by Phase 8A — the identity bridge is gone
 
-`Experiment.case_id` / `geometry_key` / `validate` remain airfoil-shaped in
-the core — generalizing them is the documented Phase 8 "per-project" work,
-and this sprint must not redesign the core. Internal-flow rows therefore
-bridge onto that identity in exactly **one isolated place**,
-`build_internal_flow_experiment`, with a deliberate (not incidental) mapping:
+As shipped by Capability 1 (Phase 7), internal-flow rows bridged onto the
+still airfoil-shaped case identity in exactly one isolated place,
+`build_internal_flow_experiment` — mapping `inlet_velocity` onto the
+canonical `velocity` slot, the Workbench geometry parameters
+(`pipe_diameter`/`pipe_length`) onto `extra_wb_params`, fluid properties onto
+`Experiment.metadata`, and pinning `aoa` to `0.0`.
 
-| Internal-flow input | Rides in | Why |
-|---|---|---|
-| `inlet_velocity` | canonical `velocity` slot | the flow variable a mesh is reused across |
-| `pipe_diameter` (P1), `pipe_length` (P2) | `extra_wb_params` | genuine Workbench geometry parameters → mesh-cache key |
-| `fluid_density`, `fluid_viscosity` | `Experiment.metadata` | fluid properties, kept out of the geometry key |
-| *(incidence)* | `aoa` pinned to `0.0` | internal flow has none; `case_id` still needs the field |
-
-`internal_flow_inputs(exp)` reads them back into a clean name→value dict, so
-the physics never touches an airfoil-named field. Because the mapping keeps
-`velocity > 0` and `aoa` finite, a bridged experiment even passes the
-existing `Experiment.validate()` unchanged.
+**Phase 8A (§17) removed that bridge.** `Experiment.case_id` / `geometry_key`
+/ `validate` are now derived from the template contract, so internal-flow
+experiments are built through the generic
+`ExperimentDefinition.build_experiment` path with no airfoil-shaped slots and
+no fabricated `aoa`. `internal_flow_inputs` now reads straight from the
+parameter store. See §17 for the generic identity contract.
 
 ### 13.5 Which seams already generalize — and which don't (yet)
 
@@ -893,6 +889,12 @@ reaches today:
   and executes Internal Flow *around* them (build → strategy → `result.json`)
   rather than redesigning them.
 
+  *(Phase 8A, §17, resolved the **Experiment identity / geometry / validation**
+  part of this bullet — the generic core no longer hardwires AOA/Velocity.
+  The remaining couplings are `ExcelManager`'s required-column check, the
+  Orchestrator's default template, and the CaseResult/Excel output metrics,
+  which belong to Phases 8C–8F.)*
+
 ### 13.6 Backward compatibility (verified)
 
 - The full regression suite passes: **255 passed** (246 prior — one Phase 7
@@ -911,7 +913,7 @@ Nearly all of the change is **Workflow**, as intended:
 
 | File | Classification | Change |
 |---|---|---|
-| `cfdauto/execution/internal_flow.py` | **Workflow** | stub → executable strategy + `build_internal_flow_experiment` / `internal_flow_inputs` / `solve_internal_flow` |
+| `cfdauto/execution/internal_flow.py` | **Workflow** | stub → executable strategy + `internal_flow_inputs` / `solve_internal_flow` (the `build_internal_flow_experiment` bridge was removed by Phase 8A, §17) |
 | `cfdauto/execution/__init__.py` | Execution | export the three workflow helpers |
 | `tests/test_internal_flow_execution.py` | Test | new — physics, bridge, execution, mesh reuse, end-to-end |
 | `tests/test_execution_framework.py` | Test | update the (now obsolete) stub-assertion test |
@@ -1156,16 +1158,18 @@ Per the engineering rule, only the **presentation** layer changed here —
 
 ### 15.6 Remaining assumptions
 
-- **Non-aero *execution* via the orchestrator** still depends on the
-  airfoil-shaped `Experiment` identity (`case_id` / `geometry_key` / `validate`
-  reference `aoa`/`velocity`). Capability 3 makes strategy *selection*,
-  workbook generation/reading, persistence, loading, and the UI per-project;
-  running a non-aero study end-to-end through the orchestrator still needs the
-  Experiment-identity generalization (the standing Phase 8 item — Internal Flow
-  execution today uses its own bridge builder, §13.4).
+- **Non-aero *execution* via the orchestrator** — Phase 8A (§17) removed the
+  remaining airfoil assumptions from the `Experiment` identity (`case_id` /
+  `geometry_key` / `validate` are now template-driven, and the Internal Flow
+  bridge builder was deleted), so a non-aero study can run end-to-end through
+  the generic `ExperimentDefinition → strategy` path. The still-open pieces
+  are the **output side**: `ColumnMap` / `ExcelManager.read_row_outputs`
+  remain the airfoil metric set, `Orchestrator` still resolves the default
+  template, and `CaseResult`/Excel serialization is generic-experiment-only
+  (Phases 8B–8F).
 - **Output/metric columns** remain the airfoil set in `ColumnMap` /
   `ExcelManager.read_row_outputs` (a template's *inputs* are generic; its
-  *outputs* are the next generalization).
+  *outputs* are the next generalization — Phase 8B onward).
 - **A fresh project defaults to `mock: true`** so it runs immediately without
   ANSYS; the user disables it once a real baseline case is configured.
 
@@ -1212,3 +1216,160 @@ Highlights:
 Per the engineering rule (`Business Logic → AppState → View Models →
 Presentation`), only the presentation layer changed. Full regression suite
 stays green; Neo adds snapshot-style UI tests (`tests/test_neo_ui.py`).
+
+---
+
+## 17. Phase 8A — template contract + generic identity & validation
+
+### 17.1 The goal
+
+The last airfoil assumptions in the *generic* `Experiment` layer are
+removed. Before Phase 8A, `case_id` / `geometry_key` / `validate` /
+`to_json_dict` / `__repr__` assumed AOA, velocity, and airfoil geometry even
+for templates that have nothing to do with airfoils. After Phase 8A the
+generic core **asks the template**:
+
+```
+Template
+   │  identity parameters        → case_id
+   │  geometry parameters        → geometry_key
+   │  validation policy          → experiment validation
+   ▼
+ExperimentDefinition
+   ▼
+Experiment  (identity / geometry / validation / serialization)
+```
+
+The generic `Experiment` no longer needs to know what CFD domain it serves.
+The domain rule is preserved at the boundary the architecture always drew:
+the External Aero *strategy/solver* may legitimately use AOA/Velocity/CL/CD —
+the *generic* layer may not.
+
+### 17.2 Template contract additions
+
+`SimulationTemplate` gained two metadata fields (both optional — empty means
+"default"):
+
+| Field | Meaning | Default |
+|---|---|---|
+| `identity_parameters` | Ordered `(name, label)` pairs composing a case's identity (`case_id`); the label is the compact token rendered beside the value. | Every input parameter of the study definition, in study order, labelled by its own name. |
+| `geometry_parameters` | Ordered parameter names determining mesh/geometry identity (`geometry_key`). | Every parameter with `category == "geometry"` **or** a `workbench_parameter` — the parameters that actually shape a mesh. |
+
+The built-in templates declare exactly what their domains need:
+
+- **External Aerodynamics** — `identity_parameters=(("aoa","aoa"),("velocity","v"))`,
+  `geometry_parameters=("aoa",)`. This *reproduces* the legacy byte-identical
+  identity (`r005_aoa8_v30`) and geometry (`aoa=8.000000`) — a declaration,
+  not a special case.
+- **Internal Flow** — `geometry_parameters=("pipe_diameter","pipe_length")`
+  (the pipe dimensions are what a mesh depends on); identity is left to the
+  default, so all five study inputs compose a case's identity and a
+  velocity/fluid sweep reuses one pipe mesh.
+- **A test-only third-template canary** (`tests/test_phase8a_generic_identity.py`)
+  declares neither field, proving the *defaults* work for a template with no
+  AOA/velocity/CL/CD anywhere.
+
+### 17.3 Generic identity & geometry derivation
+
+With a template attached, `Experiment` derives:
+
+- **`case_id`** — `rNNN` + each identity parameter's `label{value:g}` +
+  sorted Workbench extras (`source == "wbp"`, which is how non-identity
+  Workbench parameters arrive), sanitized to filesystem-safe characters.
+- **`geometry_key`** — `name={value:.6f}` for each declared geometry
+  parameter + sorted Workbench extras, joined with `|`.
+
+Workbench extras are marked by their **parameter source** (`"wbp"`), not by
+their name — so an experiment never needs an AOA/velocity field to carry
+extras, and a template's geometry contract stays data-driven.
+
+Template-*less* experiments keep the legacy airfoil-shaped derivation
+**byte-identically** — that path exists purely for backward compatibility and
+is what the golden regression pins.
+
+### 17.4 Experiment validation semantics
+
+The distinction the contract insists on:
+
+- **`ParameterDefinition.validate_value`** — *parameter-level* validation
+  (finite / required / min / max / type), pure and reusable.
+- **`SimulationTemplate.experiment_validation_problems(exp)`** — the
+  *experiment-level* policy: each parameter the experiment carries is
+  validated against its own definition, every problem prefixed with the
+  parameter name (`velocity: Velocity: -5 is below the minimum of 0.01.`).
+
+`Experiment.validate()` raises a single `ValueError` listing all problems.
+The generic core never hardcodes a domain rule — the policy *is* the
+template's parameters. The template-less legacy checks ("AOA is not a finite
+number", "velocity must be a positive number") remain byte-identical on the
+legacy path.
+
+### 17.5 Compatibility accessors
+
+`Experiment.aoa_deg`, `Experiment.velocity`, and `Experiment.extra_wb_params`
+are preserved as **compatibility accessors** routing to the generic
+`parameters` dict — one source of truth, never duplicate storage. External
+Aero code continues to use them; the generic layer does not. Their eventual
+removal is deferred to a later milestone once every downstream consumer has
+migrated.
+
+### 17.6 Serialization & `__repr__`
+
+- **Template-attached** `to_json_dict()` is generic:
+  `{row, status, template, parameters, metadata}` — no domain field implied.
+- **Template-less** `to_json_dict()` is byte-identical to v1.0.
+- `__repr__` is self-describing and domain-free: it names the template and
+  the actual parameter set, never implying every experiment has `aoa_deg` /
+  `velocity`.
+
+(Full generic *result*/metric serialization — the `CaseResult` half — is
+Phase 8B, not Phase 8A.)
+
+### 17.7 Internal Flow generic path — the bridge is removed
+
+The airfoil-shaped bridge `build_internal_flow_experiment` (Phase 7, §13.4)
+is **deleted**. Internal-flow experiments are built through the generic
+`ExperimentDefinition.build_experiment` path: all five study inputs land
+under their own parameter names, `case_id` and `geometry_key` come from the
+template contract, and validation uses the declared parameter bounds. No
+`aoa` is fabricated anywhere. `internal_flow_inputs` is kept as genuine
+domain logic and now reads straight from the parameter store.
+
+### 17.8 Registration seam (minimal, additive)
+
+Two one-function seams wire the *built-in* templates and strategies in a
+single, explicit place — without touching the registry, the runtime, or the
+generic core:
+
+- `cfdauto.platform.registry.register_builtin_templates()`
+- `cfdauto.execution.registry.register_builtin_strategies()`
+
+A new built-in template is added by editing one of these functions. A
+*third-party* template (the Phase 8A canary) registers itself on its own
+`TemplateRegistry` at the call site — also with no core change. Full plugin
+discovery (importlib entry points / packaging) is deliberately **not**
+implemented; that is Phase 8G.
+
+### 17.9 Backward compatibility (verified, not assumed)
+
+External Aerodynamics is the golden regression. For existing rows — standard,
+multiple AOA values, multiple velocities, WBP extras, and edge values — the
+template-attached path reproduces the legacy `case_id`, `geometry_key`,
+validation accept/reject behavior, and serialization **byte-identically**
+(`r005_aoa8_v30_P112_P26`, `aoa=8.000000|P1=12.000000|P2=6.000000`). The
+template-less legacy path is unchanged. The full suite (397 prior tests + the
+Phase 8A tests) stays green; no existing assertion was weakened.
+
+### 17.10 What Phase 8A deliberately leaves for later
+
+- **8B** generic outputs & metrics (`CaseResult` serialization) — this sprint
+  only made the *Experiment* half generic.
+- **8C** generic Excel / `StudyIO`.
+- **8D** generic results & analytics.
+- **8E** generic storage / ledger.
+- **8F** generic events + linter.
+- **8G** full registration seam / plugin discovery.
+- **8H** Internal Flow end-to-end through every downstream subsystem.
+
+The Excel output system, ledger schema, analytics, orchestrator event
+payloads, and the `gui/` are **untouched** by Phase 8A.

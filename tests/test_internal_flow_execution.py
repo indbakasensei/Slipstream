@@ -1,16 +1,23 @@
-"""Capability 1 — executable Internal Flow workflow.
+"""Capability 1 — executable Internal Flow workflow (Phase 8A, generic).
 
-The Internal Flow strategy is no longer a stub: it executes end-to-end
-through the *same* execution framework as External Aerodynamics (mesh via the
-Workbench adapter + a minimal analytical pipe-flow solve), producing generic
-:class:`CaseResult` objects whose metrics are the template's declared
-``pressure_drop`` / ``reynolds_number`` / ``friction_factor``.
+The Internal Flow strategy executes end-to-end through the *same* execution
+framework as External Aerodynamics (mesh via the Workbench adapter + a
+minimal analytical pipe-flow solve), producing generic :class:`CaseResult`
+objects whose metrics are the template's declared ``pressure_drop`` /
+``reynolds_number`` / ``friction_factor``.
 
-These tests cover: template dispatch, the placeholder physics, the
-Experiment bridge, per-case execution, geometry-only mesh reuse, graceful
-degradation with no mesh backend, and a full end-to-end study run (build →
-execute → record result.json) driven straight off the Internal Flow study
-definition — no core-runtime change, no orchestrator branching.
+Since Phase 8A, internal-flow experiments are built through the generic
+``ExperimentDefinition.build_experiment`` path — the old airfoil-shaped
+bridge (``build_internal_flow_experiment``) is gone, and identity /
+geometry / validation are driven by the Internal Flow template contract. No
+``aoa`` is fabricated anywhere.
+
+These tests cover: template dispatch, the placeholder physics, generic
+construction + input read-back, per-case execution, geometry-only mesh reuse,
+graceful degradation with no mesh backend, bridge removal, and a full
+end-to-end study run (build → execute → record result.json) driven straight
+off the Internal Flow study definition — no core-runtime change, no
+orchestrator branching.
 """
 
 from __future__ import annotations
@@ -29,7 +36,6 @@ from cfdauto.events import EventBus                             # noqa: E402
 from cfdauto.execution import (                                 # noqa: E402
     ExecutionContext,
     InternalFlowExecutionStrategy,
-    build_internal_flow_experiment,
     internal_flow_inputs,
     solve_internal_flow,
     strategy_for_template,
@@ -58,6 +64,18 @@ class _RecordingMesh:
         return p
 
 
+def _ed():
+    """The generic ExperimentDefinition for the Internal Flow template."""
+    return ExperimentDefinition.from_context(
+        SimulationContext(template=INTERNAL_FLOW))
+
+
+def _build(row, values):
+    """Build one internal-flow Experiment through the generic path — the
+    replacement for the removed ``build_internal_flow_experiment`` bridge."""
+    return _ed().build_experiment(row=row, values=values)
+
+
 def _context(tmp_path, mesh_backend=None):
     """A minimal ExecutionContext for the Internal Flow template. The workbook
     manager is unused by this strategy (its solve is analytical and it never
@@ -79,7 +97,7 @@ runtime: {{work_dir: "{(tmp_path / 'runs').as_posix()}", mock: true}}
 
 def _default_rows():
     """Name→value rows for the Internal Flow study's example sweep."""
-    ed = ExperimentDefinition.from_context(SimulationContext(template=INTERNAL_FLOW))
+    ed = _ed()
     names = [p.name for p in ed.study.ordered()]
     return [dict(zip(names, tup)) for tup in ed.default_experiment_rows()]
 
@@ -119,32 +137,40 @@ def test_solve_turbulent_branch_uses_blasius():
 
 
 # --------------------------------------------------------------------- #
-# Experiment bridge — the one isolated place onto the current identity
+# Generic construction — identity / geometry / validation from the template
 # --------------------------------------------------------------------- #
-def test_build_experiment_maps_inputs_onto_case_identity():
-    exp = build_internal_flow_experiment(row=5, values={
+def test_build_experiment_constructs_generic_internal_flow_case():
+    exp = _build(row=5, values={
         "inlet_velocity": 5.0, "fluid_density": 998.2,
         "fluid_viscosity": 1.002e-3, "pipe_diameter": 0.1, "pipe_length": 2.0})
-    # inlet velocity → canonical velocity slot; aoa pinned to 0.
-    assert exp.velocity == 5.0
-    assert exp.aoa_deg == 0.0
-    # geometry parameters ride in extra_wb_params (the mesh key); fluid props
-    # ride in metadata (out of the geometry key).
-    assert exp.extra_wb_params == {"pipe_diameter": 0.1, "pipe_length": 2.0}
-    assert exp.metadata["fluid_density"] == 998.2
-    assert exp.metadata["fluid_viscosity"] == 1.002e-3
-    # the existing identity/validation machinery works unchanged.
+    # Generic construction: every input under its own parameter name — no
+    # airfoil slots, no fabricated aoa.
+    assert "aoa" not in exp.parameters
+    assert "velocity" not in exp.parameters
+    assert exp.parameter("inlet_velocity").value == 5.0
+    assert exp.parameter("pipe_diameter").value == 0.1
+    assert set(exp.parameters_dict()) == {
+        "inlet_velocity", "fluid_density", "fluid_viscosity",
+        "pipe_diameter", "pipe_length"}
+    # Template-driven identity / geometry / validation work with no bridge.
     exp.validate()
-    assert isinstance(exp.case_id, str)
-    assert "pipe_diameter=0.100000" in exp.geometry_key
+    assert exp.case_id.startswith("r005_inlet_velocity5")
+    assert exp.geometry_key == "pipe_diameter=0.100000|pipe_length=2.000000"
 
 
-def test_internal_flow_inputs_round_trips_the_bridge():
+def test_internal_flow_inputs_round_trips_the_generic_experiment():
     values = {"inlet_velocity": 5.0, "fluid_density": 998.2,
               "fluid_viscosity": 1.002e-3, "pipe_diameter": 0.1,
               "pipe_length": 2.0}
-    exp = build_internal_flow_experiment(row=5, values=values)
+    exp = _build(row=5, values=values)
     assert internal_flow_inputs(exp) == pytest.approx(values)
+
+
+def test_build_internal_flow_experiment_bridge_is_removed():
+    # Phase 8A: the airfoil-shaped bridge is gone — generic construction
+    # replaces it, so the old entry point must no longer be importable.
+    with pytest.raises(ImportError):
+        from cfdauto.execution import build_internal_flow_experiment  # noqa: F401
 
 
 # --------------------------------------------------------------------- #
@@ -154,7 +180,7 @@ def test_execute_case_produces_template_metrics(tmp_path):
     mesh = _RecordingMesh()
     ctx = _context(tmp_path, mesh_backend=mesh)
     strat = strategy_for_template(INTERNAL_FLOW)
-    exp = build_internal_flow_experiment(row=2, values={
+    exp = _build(row=2, values={
         "inlet_velocity": 2.0, "fluid_density": 998.2,
         "fluid_viscosity": 1.002e-3, "pipe_diameter": 0.05, "pipe_length": 1.0})
     res = strat.execute_case(exp, ctx, ctx.state.case_dir(exp))
@@ -172,7 +198,7 @@ def test_execute_case_produces_template_metrics(tmp_path):
 def test_execute_case_without_mesh_backend_still_solves(tmp_path):
     ctx = _context(tmp_path, mesh_backend=None)
     strat = strategy_for_template(INTERNAL_FLOW)
-    exp = build_internal_flow_experiment(row=2, values={
+    exp = _build(row=2, values={
         "inlet_velocity": 2.0, "fluid_density": 998.2,
         "fluid_viscosity": 1.002e-3, "pipe_diameter": 0.05, "pipe_length": 1.0})
     res = strat.execute_case(exp, ctx, ctx.state.case_dir(exp))
@@ -190,7 +216,7 @@ def test_mesh_is_reused_across_velocity_for_one_geometry(tmp_path):
     base = {"fluid_density": 998.2, "fluid_viscosity": 1.002e-3,
             "pipe_diameter": 0.05, "pipe_length": 1.0}
     for row, v in enumerate((1.0, 2.0, 5.0), start=2):    # same pipe, 3 speeds
-        exp = build_internal_flow_experiment(row=row, values={**base, "inlet_velocity": v})
+        exp = _build(row=row, values={**base, "inlet_velocity": v})
         strat.execute_case(exp, ctx, ctx.state.case_dir(exp))
     assert len(mesh.calls) == 1                    # Workbench ran once, then cache hits
 
@@ -207,7 +233,7 @@ def test_end_to_end_study_executes_and_records_results(tmp_path):
     assert len(rows) == 8                          # 4 velocities × 2 diameters
 
     for i, values in enumerate(rows, start=2):
-        exp = build_internal_flow_experiment(row=i, values=values)
+        exp = _build(row=i, values=values)
         exp.validate()
         res = strat.execute_case(exp, ctx, ctx.state.case_dir(exp))
         ctx.state.write_result_json(exp, {

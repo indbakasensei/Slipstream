@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from .models import Experiment, ParameterValue
-from .platform import ParameterDefinition, StudyDefinition
+from .platform import ParameterDefinition, SimulationTemplate, StudyDefinition
 from .simulation_context import SimulationContext
 
 
@@ -35,13 +35,18 @@ class ExperimentDefinition:
     """Runtime view of a study's input schema, built from a StudyDefinition."""
 
     study: StudyDefinition
+    # Phase 8A: the template the study belongs to. Attached to every
+    # Experiment this definition builds, so identity/geometry/validation
+    # derive from the template's declared contract. None = legacy behavior.
+    template: Optional[SimulationTemplate] = None
 
     # ------------------------------------------------------------------ #
     @classmethod
     def from_context(cls, ctx: SimulationContext) -> "ExperimentDefinition":
         """Build from a :class:`SimulationContext` (uses its template's study
         definition; an empty one if the template declares none)."""
-        return cls(study=ctx.study_definition or StudyDefinition())
+        return cls(study=ctx.study_definition or StudyDefinition(),
+                   template=ctx.template)
 
     @classmethod
     def default(cls) -> "ExperimentDefinition":
@@ -123,7 +128,8 @@ class ExperimentDefinition:
         params = self.build_parameter_values(values)
         for name, value in (extra_wb_params or {}).items():
             params[name] = ParameterValue(name, float(value), source="wbp")
-        return Experiment(row=row, status=status, parameters=params)
+        return Experiment(row=row, status=status, parameters=params,
+                          template=self.template)
 
     # -- validation (template-driven; delegates to ParameterDefinition) - #
     def parameter_for_column(self, column_name: str) -> Optional[ParameterDefinition]:

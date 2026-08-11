@@ -116,6 +116,11 @@ INTERNAL_FLOW = SimulationTemplate(
                           _PIPE_DIAMETER, _PIPE_LENGTH),
     supported_metrics=_INTERNAL_FLOW_METRICS,
     study_definition=_INTERNAL_FLOW_STUDY,
+    # Phase 8A identity contract: identity defaults to every study input
+    # (all five — two cases differing in any physical input are distinct
+    # cases); geometry is the pipe dimensions, which is what a mesh depends
+    # on — the velocity/fluid sweeps reuse one pipe mesh.
+    geometry_parameters=("pipe_diameter", "pipe_length"),
     default_solver="ansys-fluent",
     default_boundary_conditions={
         "inlet_type": "velocity_inlet",

@@ -28,19 +28,17 @@ The result is a generic :class:`~cfdauto.models.CaseResult` whose
 ``friction_factor``) — the strategy never hardcodes which metrics a template
 has, it asks the template.
 
-Bridging onto the current case identity
----------------------------------------
-``Experiment.case_id`` / ``geometry_key`` / ``validate`` are still
-airfoil-shaped in the core (generalizing them is the documented Phase 8
-"per-project" work; this sprint must not redesign the core). Internal-flow
-rows therefore bridge onto that identity in exactly one, isolated place —
-:func:`build_internal_flow_experiment` — mapping the flow variable
-(``inlet_velocity``) onto the canonical ``velocity`` slot and the genuine
-Workbench geometry parameters (``pipe_diameter`` = P1, ``pipe_length`` = P2)
-onto ``extra_wb_params`` so the mesh cache keys on geometry only; fluid
-properties ride in ``Experiment.metadata`` (out of the geometry key).
-:func:`internal_flow_inputs` reads them back, so the physics never touches an
-airfoil-named field.
+Generic identity — Phase 8A
+---------------------------
+``Experiment.case_id`` / ``geometry_key`` / ``validate`` are driven by the
+template contract (see ``docs/PLATFORM_ARCHITECTURE.md``): identity is every
+study input, geometry is the pipe dimensions (the declared
+``geometry_parameters``), and validation is each parameter's own
+:class:`~cfdauto.platform.parameters.ParameterDefinition`. Internal-flow
+experiments are built through the generic
+:meth:`~cfdauto.experiment_definition.ExperimentDefinition.build_experiment`
+path with no airfoil-shaped slots — there is no bridge between this workflow
+and External Aerodynamics, and no ``aoa`` is fabricated anywhere.
 """
 
 from __future__ import annotations
@@ -56,14 +54,16 @@ from .strategy import ExecutionStrategy
 
 log = logging.getLogger("cfdauto.execution.internal_flow")
 
-# Study parameter names (match cfdauto.platform.internal_flow). The flow
-# variable maps onto the canonical velocity slot; the two Workbench geometry
-# parameters ride in extra_wb_params; the fluid properties ride in metadata.
+# Study parameter names (match cfdauto.platform.internal_flow). These are the
+# keys generic construction stores under each experiment's parameters, and the
+# keys solve_internal_flow reads back out.
 _INLET_VELOCITY = "inlet_velocity"
 _FLUID_DENSITY = "fluid_density"
 _FLUID_VISCOSITY = "fluid_viscosity"
 _PIPE_DIAMETER = "pipe_diameter"
 _PIPE_LENGTH = "pipe_length"
+_STUDY_PARAMETERS = (_INLET_VELOCITY, _FLUID_DENSITY, _FLUID_VISCOSITY,
+                     _PIPE_DIAMETER, _PIPE_LENGTH)
 
 # Reynolds number above which the flow is treated as turbulent (below is the
 # laminar Hagen–Poiseuille branch). The classic pipe-flow transition value.
@@ -71,73 +71,27 @@ _LAMINAR_RE_LIMIT = 2300.0
 
 
 # --------------------------------------------------------------------------- #
-# Experiment bridge — the single, isolated place internal-flow inputs meet the
-# (still airfoil-shaped) Experiment identity. See the module docstring.
+# Input read-back — generic construction stores every study input under its
+# own parameter name, so reading them out is a straight parameter read (no
+# bridging slots, no airfoil aliases).
 # --------------------------------------------------------------------------- #
-def build_internal_flow_experiment(row: int, values: Dict[str, float],
-                                   status: str = "") -> Experiment:
-    """Materialize an internal-flow :class:`Experiment` from a name→value
-    row (keys are the study parameter names).
-
-    The mapping is deliberate, not incidental:
-
-    * ``inlet_velocity`` → the canonical ``velocity`` slot (the flow variable
-      a mesh is reused across — same caching semantics as a velocity sweep);
-    * ``pipe_diameter`` / ``pipe_length`` → ``extra_wb_params`` (they are the
-      template's real Workbench geometry parameters P1/P2, so the mesh cache
-      keys on them);
-    * ``fluid_density`` / ``fluid_viscosity`` → ``Experiment.metadata``
-      (fluid properties, kept out of the geometry key);
-    * ``aoa`` is pinned to ``0.0`` — internal flow has no incidence, but the
-      current ``case_id`` still needs the field.
-    """
-    return Experiment(
-        row=row,
-        aoa_deg=0.0,
-        velocity=float(values[_INLET_VELOCITY]),
-        status=status,
-        extra_wb_params={
-            _PIPE_DIAMETER: float(values[_PIPE_DIAMETER]),
-            _PIPE_LENGTH: float(values[_PIPE_LENGTH]),
-        },
-        metadata={
-            "template": "internal-flow",
-            _FLUID_DENSITY: float(values[_FLUID_DENSITY]),
-            _FLUID_VISCOSITY: float(values[_FLUID_VISCOSITY]),
-        },
-    )
-
-
 def internal_flow_inputs(exp: Experiment) -> Dict[str, float]:
     """Read an internal-flow experiment's physical inputs back out as a clean
-    name→value dict, regardless of which Experiment slot each rode in — so the
-    solve stays free of airfoil-named fields.
+    name→value dict — so the solve stays free of airfoil-named fields.
 
-    Accepts both a bridged experiment (built by
-    :func:`build_internal_flow_experiment`) and one whose parameters are
-    stored directly under the study names.
+    Phase 8A: experiments are built through the generic
+    :meth:`~cfdauto.experiment_definition.ExperimentDefinition.build_experiment`
+    path, which stores every study input under its own parameter name in
+    ``exp.parameters``. This is therefore a straight read — there is no
+    ``velocity`` alias and no fabricated ``aoa`` to translate.
     """
     params = exp.parameters_dict()
-    meta = exp.metadata
-
-    def pick(name: str, canonical: Optional[float] = None) -> float:
-        if name in params:
-            return float(params[name])
-        if name in meta:
-            return float(meta[name])
-        if canonical is not None:
-            return float(canonical)
+    missing = [name for name in _STUDY_PARAMETERS if name not in params]
+    if missing:
         raise KeyError(
-            f"Internal-flow experiment (row {exp.row}) is missing input "
-            f"'{name}'.")
-
-    return {
-        _INLET_VELOCITY: pick(_INLET_VELOCITY, exp.parameters_dict().get("velocity")),
-        _FLUID_DENSITY: pick(_FLUID_DENSITY),
-        _FLUID_VISCOSITY: pick(_FLUID_VISCOSITY),
-        _PIPE_DIAMETER: pick(_PIPE_DIAMETER),
-        _PIPE_LENGTH: pick(_PIPE_LENGTH),
-    }
+            f"Internal-flow experiment (row {exp.row}) is missing input(s): "
+            f"{', '.join(sorted(missing))}.")
+    return {name: float(params[name]) for name in _STUDY_PARAMETERS}
 
 
 # --------------------------------------------------------------------------- #

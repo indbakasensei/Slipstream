@@ -55,6 +55,17 @@ def registered_ids() -> list[str]:
     return sorted(_STRATEGIES)
 
 
-# Built-in strategies registered at import time.
-register_strategy(ExternalAerodynamicsExecutionStrategy())
-register_strategy(InternalFlowExecutionStrategy())
+# --------------------------------------------------------------------------- #
+# Built-in registration seam (Phase 8A) — the runtime counterpart of
+# cfdauto.platform.registry.register_builtin_templates: a new built-in
+# workflow is wired in here, without touching the dispatch core.
+# --------------------------------------------------------------------------- #
+def register_builtin_strategies() -> None:
+    """Register the platform's built-in execution strategies (one shared,
+    stateless instance per id). Additive: a new built-in strategy is wired in
+    by editing this one function."""
+    register_strategy(ExternalAerodynamicsExecutionStrategy())
+    register_strategy(InternalFlowExecutionStrategy())
+
+
+register_builtin_strategies()

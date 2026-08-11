@@ -31,7 +31,7 @@ import math
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 
 # Status vocabulary written into the Excel "Status" column.
@@ -94,17 +94,25 @@ class Experiment:
     Construction keeps its legacy signature
     (``Experiment(row=, aoa_deg=, velocity=, status=, extra_wb_params=)``)
     so every existing caller and test is unaffected; a ``parameters=``
-    keyword is also accepted for template-driven construction.
+    keyword is also accepted for template-driven construction, and a
+    ``template=`` may be attached (Phase 8A) — when present, identity,
+    geometry, validation, and serialization are *derived from the template's
+    declared contract* instead of the legacy airfoil shape; when absent, the
+    legacy behavior is kept byte-identical.
     """
 
     def __init__(self, row: int, aoa_deg: Optional[float] = None,
                  velocity: Optional[float] = None, status: str = "",
                  extra_wb_params: Optional[Dict[str, float]] = None, *,
                  parameters: Optional[Dict[str, "ParameterValue"]] = None,
-                 metadata: Optional[Dict[str, Any]] = None) -> None:
+                 metadata: Optional[Dict[str, Any]] = None,
+                 template: Optional[Any] = None) -> None:
         self.row = row
         self.status = status
         self.metadata: Dict[str, Any] = dict(metadata) if metadata else {}
+        # Phase 8A: the template this experiment was built for (None keeps
+        # the legacy airfoil identity/validation byte-identical).
+        self.template = template
         self.parameters: Dict[str, ParameterValue] = {}
         if parameters is not None:
             for name, pv in parameters.items():
@@ -152,15 +160,36 @@ class Experiment:
         """All input parameters as a plain name→value dict."""
         return {name: pv.value for name, pv in self.parameters.items()}
 
-    # -- identity / validation (unchanged behavior) --------------------- #
+    # -- identity / validation (Phase 8A: template-driven, legacy fallback) - #
+    def _wb_extras(self, excluded: Tuple[str, ...] = ()) -> Dict[str, float]:
+        """The runtime's workbench extras (``source="wbp"``) as a plain
+        name→value dict, minus any names in ``excluded``. This is the
+        generic "extra parameters" marker — independent of parameter names,
+        so an experiment never needs an AOA/velocity field to have extras."""
+        return {name: pv.value for name, pv in self.parameters.items()
+                if pv.source == "wbp" and name not in excluded}
+
     @property
     def case_id(self) -> str:
-        """Filesystem-safe unique identifier, e.g. ``r05_aoa8.0_v30.0``."""
-        base = f"r{self.row:03d}_aoa{self.aoa_deg:g}_v{self.velocity:g}"
-        if self.extra_wb_params:
-            extra = "_".join(f"{k}{v:g}" for k, v in sorted(self.extra_wb_params.items()))
-            base += "_" + extra
-        return re.sub(r"[^A-Za-z0-9._\-]+", "-", base)
+        """Filesystem-safe unique identifier, e.g. ``r05_aoa8_v30``.
+
+        With a template attached, derived from the template's declared
+        identity parameters (+ workbench extras); without one, the legacy
+        airfoil-shaped identifier is reproduced byte-identically.
+        """
+        if self.template is None:
+            base = f"r{self.row:03d}_aoa{self.aoa_deg:g}_v{self.velocity:g}"
+            if self.extra_wb_params:
+                extra = "_".join(f"{k}{v:g}" for k, v in sorted(self.extra_wb_params.items()))
+                base += "_" + extra
+            return re.sub(r"[^A-Za-z0-9._\-]+", "-", base)
+
+        names = self.template.identity_parameter_names()
+        parts = [f"r{self.row:03d}"]
+        parts += [f"{self.template.identity_label(n)}"
+                  f"{self.parameters[n].value:g}" for n in names]
+        parts += [f"{k}{v:g}" for k, v in sorted(self._wb_extras(names).items())]
+        return re.sub(r"[^A-Za-z0-9._\-]+", "-", "_".join(parts))
 
     @property
     def geometry_key(self) -> str:
@@ -168,31 +197,72 @@ class Experiment:
 
         Rows that share this key can reuse the same mesh (e.g. same AOA at
         several velocities), which avoids pointless Workbench re-meshing.
+        With a template attached, derived from the template's declared
+        geometry parameters (+ workbench extras); without one, the legacy
+        AOA-based key is reproduced byte-identically.
         """
-        parts = [f"aoa={self.aoa_deg:.6f}"]
-        parts += [f"{k}={v:.6f}" for k, v in sorted(self.extra_wb_params.items())]
+        if self.template is None:
+            parts = [f"aoa={self.aoa_deg:.6f}"]
+            parts += [f"{k}={v:.6f}" for k, v in sorted(self.extra_wb_params.items())]
+            return "|".join(parts)
+
+        names = self.template.geometry_parameter_names()
+        parts = [f"{n}={self.parameters[n].value:.6f}" for n in names]
+        parts += [f"{k}={v:.6f}" for k, v in sorted(self._wb_extras(names).items())]
         return "|".join(parts)
 
     def validate(self) -> None:
-        if not math.isfinite(self.aoa_deg):
-            raise ValueError(f"Row {self.row}: AOA is not a finite number")
-        if not math.isfinite(self.velocity) or self.velocity <= 0:
-            raise ValueError(f"Row {self.row}: velocity must be a positive number")
+        """Reject invalid inputs by raising ``ValueError`` (the contract the
+        orchestrator relies on). Template-driven when a template is attached
+        (its declared validation policy — parameter definitions); otherwise
+        the legacy airfoil checks run unchanged."""
+        if self.template is None:
+            if not math.isfinite(self.aoa_deg):
+                raise ValueError(f"Row {self.row}: AOA is not a finite number")
+            if not math.isfinite(self.velocity) or self.velocity <= 0:
+                raise ValueError(f"Row {self.row}: velocity must be a positive number")
+            return
 
-    # -- serialization (byte-identical to the former vars(exp)) --------- #
+        problems = self.template.experiment_validation_problems(self)
+        if problems:
+            raise ValueError(f"Row {self.row}: " + "; ".join(problems))
+
+    # -- serialization -------------------------------------------------- #
     def to_json_dict(self) -> Dict[str, Any]:
-        """The dict that used to be ``vars(exp)`` — same keys, same order."""
+        """A JSON-ready dict of this experiment.
+
+        Template-less experiments keep the legacy shape byte-identically
+        (the former ``vars(exp)`` — same keys, same order). Template-driven
+        experiments serialize generically: the template id, the parameter
+        values, and any metadata — no domain field is implied.
+        """
+        if self.template is None:
+            return {
+                "row": self.row,
+                "aoa_deg": self.aoa_deg,
+                "velocity": self.velocity,
+                "status": self.status,
+                "extra_wb_params": self.extra_wb_params,
+            }
         return {
             "row": self.row,
-            "aoa_deg": self.aoa_deg,
-            "velocity": self.velocity,
             "status": self.status,
-            "extra_wb_params": self.extra_wb_params,
+            "template": self.template.id,
+            "parameters": {name: pv.value
+                           for name, pv in sorted(self.parameters.items())},
+            "metadata": dict(self.metadata),
         }
 
     def __repr__(self) -> str:
-        return (f"Experiment(row={self.row}, aoa_deg={self.aoa_deg:g}, "
-                f"velocity={self.velocity:g}, status={self.status!r})")
+        """Self-describing, domain-free: names the template and the actual
+        parameter set rather than implying AOA/velocity."""
+        if self.template is None:
+            return (f"Experiment(row={self.row}, aoa_deg={self.aoa_deg:g}, "
+                    f"velocity={self.velocity:g}, status={self.status!r})")
+        params = ", ".join(f"{name}={pv.value:g}"
+                           for name, pv in sorted(self.parameters.items()))
+        return (f"Experiment(row={self.row}, template={self.template.id!r}, "
+                f"status={self.status!r}, parameters={{{params}}})")
 
 
 # --------------------------------------------------------------------------- #

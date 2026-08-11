@@ -20,7 +20,7 @@ definition, so there is a single source of truth for each.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .metrics import SOURCE_DERIVED, MetricDefinition
 from .parameters import ParameterDefinition, ParameterType
@@ -62,6 +62,21 @@ class SimulationTemplate:
         template's studies (resolved by the runtime's execution registry).
         A plain string so the platform layer stays free of any runtime/
         execution import; the template *owns* its execution by naming it.
+    identity_parameters:
+        Phase 8A — which input parameters compose a case's *identity*
+        (``case_id``), as ordered ``(parameter_name, label)`` pairs. The
+        label is the compact token rendered next to the value (External
+        Aerodynamics renders ``aoa8`` / ``v30``). Empty means "default":
+        every input parameter of the study definition, in study order,
+        labelled by its own name. Any non-identity parameters the runtime
+        marks as workbench extras are appended, sorted.
+    geometry_parameters:
+        Phase 8A — which input parameters determine a case's *geometry/
+        mesh* identity (``geometry_key``), in order. Empty means "default":
+        every parameter whose ``category`` is ``"geometry"`` or that maps a
+        ``workbench_parameter`` (in template order) — the parameters that
+        actually shape a mesh. Workbench extras not declared are appended,
+        sorted.
     """
 
     id: str
@@ -75,6 +90,8 @@ class SimulationTemplate:
     report_type: str = "study-summary"
     validation_profile: str = ""
     execution_strategy_id: str = ""
+    identity_parameters: Tuple[Tuple[str, str], ...] = ()
+    geometry_parameters: Tuple[str, ...] = ()
 
     # ------------------------------------------------------------------ #
     def parameter(self, name_or_id: str) -> Optional[ParameterDefinition]:
@@ -90,6 +107,69 @@ class SimulationTemplate:
             if name_or_id in (m.name, m.id):
                 return m
         return None
+
+    # ------------------------------------------------------------------ #
+    # Phase 8A contract: identity / geometry / validation semantics. The
+    # generic core never hardcodes a domain rule — it asks the template.
+    # ------------------------------------------------------------------ #
+    def identity_parameter_names(self) -> Tuple[str, ...]:
+        """Ordered names of the parameters that compose a case's identity.
+
+        The declared ``identity_parameters`` when present; otherwise every
+        input parameter of the study definition (in study order), so a
+        template that declares nothing still gets a stable, unique identity
+        from its own inputs.
+        """
+        if self.identity_parameters:
+            return tuple(name for name, _ in self.identity_parameters)
+        if self.study_definition is not None:
+            return tuple(p.name for p in self.study_definition.ordered())
+        return tuple(p.name for p in self.supported_parameters)
+
+    def identity_label(self, name: str) -> str:
+        """The compact label ``name`` renders under in a case id (its own
+        name when the template declares no override)."""
+        for n, label in self.identity_parameters:
+            if n == name:
+                return label
+        return name
+
+    def geometry_parameter_names(self) -> Tuple[str, ...]:
+        """Ordered names of the parameters that determine geometry/mesh
+        identity.
+
+        The declared ``geometry_parameters`` when present; otherwise every
+        parameter that shapes a mesh — ``category == "geometry"`` or a
+        mapped ``workbench_parameter`` — in template order.
+        """
+        if self.geometry_parameters:
+            return tuple(self.geometry_parameters)
+        return tuple(p.name for p in self.supported_parameters
+                     if p.category == "geometry" or p.workbench_parameter)
+
+    def experiment_validation_problems(self, exp: Any) -> List[str]:
+        """Every experiment-level validation problem for ``exp`` under this
+        template's declared validation policy.
+
+        The policy *is* the template's parameters: each present parameter is
+        validated against its own :class:`ParameterDefinition` (finite /
+        minimum / maximum / required) via :meth:`ParameterDefinition.validate_value`.
+        The generic core never hardcodes a domain rule. ``exp`` is
+        duck-typed (must expose ``.parameters``) so the platform layer stays
+        free of any runtime import.
+        """
+        problems: List[str] = []
+        if self.study_definition is not None:
+            defs = [sp.parameter for sp in self.study_definition.ordered()]
+        else:
+            defs = list(self.supported_parameters)
+        for pdef in defs:
+            pv = (exp.parameters or {}).get(pdef.name)
+            if pv is None:
+                continue                     # only the params it carries
+            for prob in pdef.validate_value(pv.value):
+                problems.append(f"{pdef.name}: {prob}")
+        return problems
 
 
 # --------------------------------------------------------------------------- #
@@ -165,6 +245,11 @@ EXTERNAL_AERODYNAMICS = SimulationTemplate(
     supported_parameters=(_AOA, _VELOCITY),
     supported_metrics=_EXT_AERO_METRICS,
     study_definition=_EXT_AERO_STUDY,
+    # Phase 8A identity contract: AOA + velocity, with the labels that
+    # reproduce the legacy case-id exactly (``r003_aoa8_v30``). Geometry is
+    # AOA + any runtime Workbench extras — the legacy mesh-cache key.
+    identity_parameters=(("aoa", "aoa"), ("velocity", "v")),
+    geometry_parameters=("aoa",),
     default_solver="ansys-fluent",
     default_boundary_conditions={
         "inlet_type": "velocity_inlet",

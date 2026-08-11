@@ -23,12 +23,12 @@ from .external_aerodynamics import (                       # noqa: F401
 )
 from .internal_flow import (                               # noqa: F401
     InternalFlowExecutionStrategy,
-    build_internal_flow_experiment,
     internal_flow_inputs,
     solve_internal_flow,
 )
 from .registry import (                                    # noqa: F401
     get_execution_strategy,
+    register_builtin_strategies,
     register_strategy,
     registered_ids,
     strategy_for_template,
