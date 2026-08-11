@@ -9,6 +9,66 @@ post-1.0. `cfdauto.__version__` (`cfdauto/__init__.py`) is the single
 authoritative version source; every version shown in the window title,
 status bar, About dialog, and packaging metadata derives from it.
 
+## [2.2.0-dev] — Unreleased (development)
+
+> Development version. The Neo v2.2 UI milestone is **feature-complete**
+> (Stages 1–6). Platform **Phase 8 remains partial** and is *not* part of
+> this release — see [`docs/PLATFORM_ARCHITECTURE.md`](docs/PLATFORM_ARCHITECTURE.md).
+
+### Added — Neo v2.2 UI (Stages 1–6)
+
+- **Neo desktop shell & design system** — a modern, information-first
+  engineering interface (tokens, palette, typography, shared card/chip
+  components) defined in `docs/UI_DESIGN_SYSTEM.md` and implemented in
+  `gui/theme.py`.
+- **Dashboard redesign** — status cards, overall progress, live charts, Study
+  Overview (per-input range rows), Study Summary, recent events.
+- **Monitor redesign** — information-first cards: current study, solver
+  pipeline, live metrics, convergence, timeline.
+- **Queue redesign** — persistent, colour-coded schedule table with run controls.
+- **Charts redesign** — interactive presets plus custom X/Y/colour, hover, PNG
+  export.
+- **Parameters redesign** — metadata-driven form generated from the active
+  template.
+- **Images workspace** — thumbnail browser + zoom/pan viewer for case artefacts.
+- **Console** — engine-log console panel.
+- **Adaptive Workspace (Stage 5)** — user-initiated **Queue collapse** and
+  **Focus Mode** (hides the sidebar, Queue, and docks so the current page fills
+  the window; exact layout restoration on exit).
+- **Responsive workspace hardening (Stage 6)** — dock sizing, flow-layout
+  wrapping, and a stress matrix verified offscreen across desktop/narrow/short
+  window sizes (16 verified screenshots).
+
+### Added — platform / template work that landed before this release
+
+- **Template-driven architecture** — `cfdauto/platform/` pure-metadata models
+  (`ParameterDefinition`, `MetricDefinition`, `SimulationTemplate`,
+  `TemplateRegistry`, `StudyDefinition`) and the External Aerodynamics template.
+- **Project template selection** — a `runtime.template` config field resolved
+  through the registry; new projects pick a template and restore it on load.
+- **Internal Flow template + execution strategy** — a second, domain-different
+  reference template with an executable (analytical) Internal Flow workflow
+  through the same strategy framework.
+- **Generic experiment/model improvements** — `ParameterValue`/`MetricValue`
+  containers; `Experiment`/`CaseResult` store generically with the airfoil-named
+  fields kept as compatibility accessors (byte-identical serialization verified).
+- **Template-driven StudyIO / UI behavior** — `StudyIO` maps template metadata
+  to/from the spreadsheet; the GUI's parameters, queue, charts, and validation
+  render from template metadata.
+
+### Changed
+
+- `cfdauto.__version__` bumped to `2.2.0-dev` — the single authoritative
+  version source for the window title, status bar, About dialog, and packaging.
+
+### Status
+
+- **Neo v2.2 UI: feature-complete** (Stages 1–6). 397 tests passing.
+- **Platform Phase 8: partial** — the remaining airfoil-shaped identity/write
+  paths (`case_id`/`geometry_key`/`validate`, `ColumnMap` output columns,
+  ledger schema, orchestrator event payloads, linter dispatch, analytics
+  architecture) are scheduled future work, not part of this release.
+
 ## [1.0.0-rc1] — Release Candidate 1
 
 ### Changed

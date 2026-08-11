@@ -2,7 +2,7 @@
 
 **Excel-driven parametric wing studies with a professional engineering GUI, a live-streaming simulation monitor, a SQLite provenance ledger, and a battle-tested automation engine underneath.**
 
-`Apache-2.0` · `100% local` · `no telemetry` · `no cloud` · `146/146 tests pass`
+`Apache-2.0` · `100% local` · `no telemetry` · `no cloud` · `Neo v2.2 UI` · `397/397 tests pass`
 
 ```bash
 pip install -r requirements.txt -r requirements-gui.txt
@@ -55,7 +55,7 @@ The GUI is built on PySide6 + pyqtgraph. The engine (`cfdauto`) works with any F
 
 ## Features at a glance
 
-### Desktop shell (v0.8)
+### Desktop shell (Neo v2.2)
 
 - **Dashboard** — Status cards, overall progress, live L/D chart, recent events, pipeline mirror
 - **Project Explorer** — Config, schedule, baseline case, every case folder with its artifacts
@@ -130,7 +130,7 @@ pip install -r requirements.txt
 # Install the desktop GUI (add if you want the desktop app)
 pip install -r requirements-gui.txt
 
-# Confirm all tests pass (146/146 as of v1.0.0-rc1)
+# Confirm all tests pass (397/397 as of Neo v2.2)
 python -m pytest tests/ -q
 ```
 
@@ -184,32 +184,30 @@ python main.py run
 ### Layout
 
 ```
-┌ Menu: File · Run · View · Help ──────────────────────────────────────────┐
-│ [Open Project] [Reload] │ [▶ Run All] [⏹ Stop] │ [☐ Mock mode]           │
+┌ File · Run · View · Help ────────────────────────────────────────────────┐
+│ [Open Project] [Reload] [Projects…] │ [▶ Run All] [⏹ Stop] │ [☐ Mock]   │
 │─────────────────────────────────────────────────────────────────────────│
-│ ⚠ ORANGE BANNER (visible only when mock mode is active) ⚠               │
+│            │  ⚠ ORANGE MOCK-MODE BANNER (only when mock mode is active) ⚠│
+│            │                                                            │
+│  SIDEBAR   │  WorkspaceHeader — page · project · template · schedule    │
+│  Workspace ├──────────────────────────────────────────┬─────────────────┤
+│   ▦ Dash   │  Center workspace (sidebar pages):       │ QUEUE            │
+│   ▤ Results│    Dashboard · Results · Charts · Images │ ▶ Run All Run    │
+│   📈 Charts│    — or the empty-state page when no     │ ⏹ Stop ☐Retry   │
+│   🖼 Images│      project is loaded                   │ Row AOA V St …   │
+│  Project   │                                          │  2  0 20 ✓ …     │
+│   ⚙ config │  Monitor · Parameters are right docks,   │                  │
+│   ▤ sched  │  hidden by default (View menu). Focus    │                  │
+│   ⬢ base…  │  Mode hides everything else to focus     │                  │
+│            │  the current page.                       │                  │
+│────────────┴──────────────────────────────────────────┴─────────────────│
+│                       LOG · Statistics · Console (tabbed)                │
 │─────────────────────────────────────────────────────────────────────────│
-│              │                                          │ QUEUE           │
-│   EXPLORER   │  Dashboard  Results  Charts  Images     │ Run All RunSel  │
-│   Project    │                                          │ ⏹ Stop ☐Retry  │
-│   ⚙ config   │                                          │ Row AOA V St CL │
-│   ▤ schedule │  Central workspace (tabs)                │  2  0 20 ✓ .20  │
-│   ⬢ baseline │                                          │  3  0 30 ▶ …    │
-│   Runs       │                                          │─────────────────│
-│   📁 r002…   │                                          │ MONITOR         │
-│      *.png   │                                          │ r003 · 2/8      │
-│              │                                          │ [Stages]        │
-│   [Refresh]  │                                          │ ████████░ 74%   │
-│              │                                          │ CL/CD live plot │
-│              │                                          │ Residual log-y  │
-│─────────────────────────────────────────────────────────────────────────│
-│                       LOG · Statistics (tabbed)                          │
-│─────────────────────────────────────────────────────────────────────────│
-│ engine: case 2/8 — r003_aoa0_v30 · queue: 6 pending · v1.0.0-rc1         │
+│ engine · queue · project · template · python · mode · v2.2.0-dev         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-Every panel is dockable — drag by its title bar to move or tab it. `View → Reset layout` restores the default arrangement.
+The Queue is a persistent right panel; **Monitor** and **Parameters** are docks hidden by default — reveal them from `View → Monitor / Parameters`. Any dock can be dragged by its title bar to move or tab it; `View → Reset layout` restores the default arrangement. **Focus Mode** (workspace header) hides the sidebar, Queue, and docks so the current page gets the full window.
 
 ### Keyboard shortcuts
 
@@ -505,18 +503,18 @@ slipstream/
 │   ├── error_formatting.py  # v1.0.0-alpha.2: centralized error explanations
 │   ├── study_analytics.py   # v1.0.0-alpha.3: post-batch StudySummary (read-only)
 │   ├── project_manager.py   # v1.0.0-alpha.5: project folders + metadata + recents
-│   ├── project_scaffold.py  # v2.0.0-dev: template → config.yaml + workbook (Capability 3)
-│   ├── simulation_context.py # v2.0.0-dev: runtime template-metadata source of truth
-│   ├── experiment_definition.py # v2.0.0-dev: runtime materialization of a study's input schema
-│   ├── study_io.py          # v2.0.0-dev: template-driven spreadsheet↔runtime boundary
-│   ├── platform/            # v2.0.0-dev: universal CFD platform metadata
+│   ├── project_scaffold.py  # v2.2-dev: template → config.yaml + workbook (Capability 3)
+│   ├── simulation_context.py # v2.2-dev: runtime template-metadata source of truth
+│   ├── experiment_definition.py # v2.2-dev: runtime materialization of a study's input schema
+│   ├── study_io.py          # v2.2-dev: template-driven spreadsheet↔runtime boundary
+│   ├── platform/            # v2.2-dev: universal CFD platform metadata
 │   │   ├── parameters.py    #   ParameterDefinition (generic inputs)
 │   │   ├── metrics.py       #   MetricDefinition (generic outputs)
 │   │   ├── study_definition.py #   StudyDefinition (ordered inputs + columns)
 │   │   ├── templates.py     #   SimulationTemplate + External Aerodynamics
 │   │   ├── internal_flow.py #   Internal Flow template (multi-template proof)
 │   │   └── registry.py      #   TemplateRegistry (see docs/PLATFORM_ARCHITECTURE.md)
-│   ├── execution/           # v2.0.0-dev: template-owned execution framework
+│   ├── execution/           # v2.2-dev: template-owned execution framework
 │   │   ├── strategy.py      #   ExecutionStrategy (per-case workflow + cascade hooks)
 │   │   ├── context.py, result.py, adapters.py, registry.py
 │   │   ├── external_aerodynamics.py  #   the existing workflow, moved verbatim
@@ -525,9 +523,9 @@ slipstream/
 │
 ├── gui/                     # PySide6 desktop shell — Neo design system
 │   ├── app.py, main_window.py
-│   ├── theme.py             # v2.0.0-dev: Neo design tokens + app-wide stylesheet (see docs/UI_DESIGN_SYSTEM.md)
+│   ├── theme.py             # v2.2-dev: Neo design tokens + app-wide stylesheet (see docs/UI_DESIGN_SYSTEM.md)
 │   ├── state.py             # AppState (dataset, config, running flag, template metadata)
-│   ├── param_render.py      # v2.0.0-dev: metadata → widget pipeline (Dynamic Template UI)
+│   ├── param_render.py      # v2.2-dev: metadata → widget pipeline (Dynamic Template UI)
 │   ├── event_bridge.py      # bus → Qt signals bridge
 │   ├── project_selector_dialog.py  # v1.0.0-alpha.5: Open Recent/Existing/Create New (+ template picker)
 │   ├── panels/
@@ -537,7 +535,7 @@ slipstream/
 │   └── widgets/
 │       └── card.py, cards.py, status_chip.py, pipeline_widget.py, sidebar.py, …
 │
-├── tests/                   # 33 tests
+├── tests/                   # 397 tests (full suite, as of Neo v2.2)
 │   ├── test_engine.py       # baseline: models, config, aero, orchestrator
 │   ├── test_v09_m1.py       # aoa_scale, linter rules, doctor
 │   ├── test_v09_m2.py       # telemetry tap, residuals correlation, mock streaming
@@ -740,9 +738,15 @@ Full troubleshooting matrix in [`docs/slipstream_tutorial.html`](docs/slipstream
 - ✅ alpha.6 — Packaging: PyInstaller one-folder Windows build, release scripts, centralized versioning
 - ✅ alpha.7 — Benchmark validation framework (`tools/validation/`): MAE/RMSE/max-error comparison + plots against a reference dataset
 
-**v1.0.0-rc1 (current)** — documentation audit, version-consistency pass, release notes, changelog, QA guide, release metadata (this release)
+**v1.0.0-rc1 (shipped)** — documentation audit, version-consistency pass, release notes, changelog, QA guide, release metadata
 
-**Remaining before a final v1.0.0 tag**
+**Neo v2.2 (current)** — the Slipstream Neo desktop UI, feature-complete (Stages 1–6), on top of the universal-platform work that landed since v1.0.0-rc1:
+
+- **UI (Stages 1–6)** — Neo desktop shell & design system, Dashboard redesign, Monitor redesign, Queue redesign, Charts redesign, Parameters redesign, Images workspace, Console, Adaptive Workspace (Queue collapse + Focus Mode), responsive workspace hardening, and Stage 6 stress/responsive testing (16 verified screenshots). **397 tests passing.**
+- **Platform / template work that landed** — template-driven architecture (metadata + registry), project template selection (External Aerodynamics + Internal Flow), an Internal Flow execution strategy, generic experiment/model containers, and template-driven StudyIO / UI.
+- **Status** — **Neo v2.2 UI is feature-complete.** Platform **Phase 8** (generalizing the remaining airfoil-shaped identity/write paths) remains **partial** and is future work.
+
+**Remaining before a final v1.0.0 tag** *(historical)*
 - NACA 0012 validation as a second-geometry portfolio proof point (the *framework* to do this shipped in alpha.7; the actual benchmark run has not — see [`docs/validation/VALIDATION.md`](docs/validation/VALIDATION.md), which is currently a template)
 - A dedicated USAGE guide and CONTRIBUTING guide as standalone files (currently folded into this README)
 
@@ -759,7 +763,7 @@ Full blueprint: [`docs/CFD_PLATFORM_BLUEPRINT.md`](docs/CFD_PLATFORM_BLUEPRINT.m
 ## Contributing
 
 1. Fork the repo, create a feature branch
-2. Run `python -m pytest tests/ -q` — must show all tests passing (146/146 as of v1.0.0-rc1; more if you add tests)
+2. Run `python -m pytest tests/ -q` — must show all tests passing (397/397 as of Neo v2.2; more if you add tests)
 3. Follow the existing code style: type hints everywhere, docstrings on public functions, small classes with narrow responsibilities
 4. Open a pull request describing what problem you solved
 
@@ -768,7 +772,7 @@ The codebase is deliberately over-commented for readers who are also learning CF
 ### Running the test suite
 
 ```bash
-# The full suite (146 tests as of v1.0.0-rc1)
+# The full suite (397 tests as of Neo v2.2)
 python -m pytest tests/ -q
 
 # Just the M3 SQLite tests

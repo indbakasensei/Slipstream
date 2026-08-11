@@ -91,7 +91,7 @@ class StudySummaryPanel(QWidget):
         self.updated_lbl.setProperty("hint", True)
         v.addWidget(self.updated_lbl)
 
-        # GUI Modernization (v1.0.0-rc2): warnings live inside a collapsible
+        # Neo v2.2: warnings live inside a collapsible
         # section so they don't permanently occupy space when there's
         # nothing to show. self.warnings_list itself is unchanged — same
         # QListWidget, same .count()/.item() behavior, regardless of

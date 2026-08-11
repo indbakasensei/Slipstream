@@ -1,6 +1,6 @@
 """Slipstream main window — layout, wiring, and engine-worker ownership.
 
-GUI Modernization (v1.0.0-rc2) layout::
+Neo v2.2 layout::
 
     ┌ menu bar ────────────────────────────────────────────────────────────┐
     │ toolbar: Open Project · Reload · Run All · Stop · Mock mode          │

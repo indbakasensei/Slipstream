@@ -1,6 +1,6 @@
 # Slipstream — Universal CFD Platform Architecture
 
-**Status: v2.0.0-dev, UX Milestone 1 (Slipstream Neo UI).**
+**Status: v2.2-dev, UX Milestone 1 (Slipstream Neo UI).**
 This document describes the architectural direction and every migration
 phase: the metadata layer (Phase 1), the runtime's migration onto it
 (Phase 2), template-driven study definitions/ordering (Phase 3A, §7),

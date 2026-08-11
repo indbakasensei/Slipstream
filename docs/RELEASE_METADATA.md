@@ -4,6 +4,21 @@ Machine-checkable facts about this release, kept separate from the prose
 in `docs/RELEASE_NOTES_v1.0.0-rc1.md`. Update this file's **Version** and
 **Release name** fields for every future release; the rest changes rarely.
 
+## Current development release
+
+| Field | Value |
+|---|---|
+| Release name | Slipstream v2.2.0-dev (Neo v2.2 UI milestone) |
+| Version | `v2.2.0-dev` (`cfdauto.__version__` — the single authoritative version source; see `cfdauto/__init__.py`) |
+| Status | **Development — unreleased.** The Neo v2.2 UI milestone is feature-complete (Stages 1–6); platform **Phase 8 remains partial** and is future work. Not a production release. |
+| Repository URL | `<GITHUB_REPOSITORY_URL>` — placeholder; fill in with the public repository URL before publishing this release |
+| License | Apache License 2.0 (see [`LICENSE`](../LICENSE)) |
+
+## Previous tagged release (v1.0.0-rc1)
+
+The last shipped tagged release. Kept for history; the current development
+work builds on top of it.
+
 | Field | Value |
 |---|---|
 | Release name | Slipstream v1.0.0 Release Candidate 1 |

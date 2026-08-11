@@ -5,6 +5,8 @@ checkbox version of the same pass (used right before tagging a release),
 see [`docs/RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md). None of this
 requires ANSYS unless explicitly noted — Mock mode covers most of it.
 
+> Applies to the current development version **v2.2.0-dev** (Neo v2.2 UI).
+
 ## 1. Startup verification
 
 **Steps**
@@ -37,17 +39,27 @@ With any project open (mock or real):
   the L/D-vs-AOA chart and "Recent events" feed populate as cases finish;
   the Study Summary widget (bottom of the Dashboard) starts in its
   placeholder state ("Run a study to view summary statistics.").
-- **Queue** (right dock) — every schedule row appears, color-coded by
-  status; **Run All**, **Run Selected**, **Stop**, and **Retry FAILED**
-  are all reachable from the toolbar/menu and the dock itself.
-- **Monitor** (right dock) — pipeline stage chips and a weighted progress
-  bar for whichever case is currently running; empty/idle when nothing is
-  running.
-- **Results / Charts / Images** (central tabs) — populate only after at
+- **Queue** (persistent right panel) — every schedule row appears,
+  color-coded by status; **Run All**, **Run Selected**, **Stop**, and
+  **Retry FAILED** are all reachable from the Queue controls and the
+  toolbar/menu. The status filter pills (**ALL / PENDING / RUNNING /
+  DONE / FAILED**) filter the visible rows, and the ☰ Queue toggle in the
+  workspace header collapses the panel.
+- **Monitor** (right dock, hidden by default — **View → Monitor**) —
+  pipeline stage chips and a weighted progress bar for whichever case is
+  currently running; empty/idle when nothing is running.
+- **Results / Charts / Images** (sidebar pages) — populate only after at
   least one case has finished; **Charts** should render a CL-vs-AOA drag
   polar without error once there's data.
+- **Parameters** (right dock, hidden by default — **View → Parameters**) —
+  the metadata-generated form for the selected row (spinboxes with the
+  active template's units/ranges; locked read-only for rows with results).
 - **Log console** (bottom dock) — mirrors exactly what the CLI would print
   to the terminal.
+- **Console** (bottom dock) — `help / open / run / stop / reload / mock`
+  all respond without a traceback.
+- **Focus Mode** (workspace header) — hides the sidebar, Queue, and docks;
+  the current page fills the window and the exact layout is restored on exit.
 - **File ▸ Projects…** (`Ctrl+Shift+O`) — reopens the Project Selector at
   any time, not just at startup.
 
@@ -142,11 +154,12 @@ appear under `docs/validation/benchmark/`, and `cl_comparison.png` /
 must produce identical numbers and byte-identical plots — if it doesn't,
 that's a real regression in the tooling, not expected variance.
 
-**Note:** as of v1.0.0-rc1 this workflow has not yet been run against a
-real ANSYS benchmark case in this repository — `docs/validation/VALIDATION.md`
-is still a template. Running it end-to-end with real data is itself a
-useful QA pass even before a real reference dataset is sourced (any two
-CSVs in the right shape will do to confirm the tooling works).
+**Note:** as of v2.2.0-dev this workflow has still not been run against a
+real ANSYS benchmark case in this repository (this was already the case at
+v1.0.0-rc1) — `docs/validation/VALIDATION.md` is still a template. Running
+it end-to-end with real data is itself a useful QA pass even before a real
+reference dataset is sourced (any two CSVs in the right shape will do to
+confirm the tooling works).
 
 ## 7. General troubleshooting notes
 

@@ -1,4 +1,4 @@
-"""StudyOverviewTable — GUI Modernization (v1.0.0-rc2): a dashboard section
+"""StudyOverviewTable — Neo v2.2: a dashboard section
 showing Project / one input-range row *per study parameter* / case counts /
 average CL·CD·L-D / execution time / status, computed directly from
 ``AppState.df`` — exactly the way ``StatsPanel`` already computes its own

@@ -1,4 +1,4 @@
-"""GUI smoke test — the whole v0.8 shell, offscreen, against the mock engine.
+"""GUI smoke test — the whole Neo v2.2 desktop shell, offscreen, against the mock engine.
 
 Skipped automatically when PySide6/pyqtgraph aren't installed (e.g. on a
 CLI-only machine); in CI/dev containers it exercises: project load, Run All

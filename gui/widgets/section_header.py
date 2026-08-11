@@ -1,5 +1,5 @@
 """SectionHeader — a small, reusable title bar used at the top of every
-dashboard/panel section (GUI Modernization, v1.0.0-rc2).
+dashboard/panel section (Neo v2.2).
 
 Consistent typography and spacing everywhere it's used, instead of each
 panel hand-rolling its own QLabel + separator. Purely presentational —

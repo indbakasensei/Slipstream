@@ -1,8 +1,8 @@
-# Slipstream v0.8 — User Guide
+# Slipstream v2.2 — User Guide
 
 **A desktop application for running CFD studies with ANSYS Workbench + Fluent**
 
-Slipstream wraps the `cfdauto` CFD automation engine in a professional desktop interface. You define a parametric study in Excel, press **Run All**, and watch every simulation from geometry update to convergence — live, in one window.
+Slipstream wraps the `cfdauto` CFD automation engine in the **Neo v2.2** desktop interface. You define a parametric study in Excel, press **Run All**, and watch every simulation from geometry update to convergence — live, in one window.
 
 ---
 
@@ -15,7 +15,7 @@ Slipstream wraps the `cfdauto` CFD automation engine in a professional desktop i
 5. [Open your project](#5-open-your-project)
 6. [Queue panel and run controls](#6-queue-panel-and-run-controls)
 7. [Live monitor](#7-live-monitor)
-8. [Results tab and charts](#8-results-tab-and-charts)
+8. [Results page and charts](#8-results-page-and-charts)
 9. [Images and artifacts](#9-images-and-artifacts)
 10. [Edit experiments](#10-edit-experiments)
 11. [Add experiments](#11-add-experiments)
@@ -32,13 +32,16 @@ Everything you could previously only see in the terminal is now visualised in re
 
 **Main features:**
 
-- 📋 **Dashboard** — Status cards, overall progress, live L/D chart, recent events
-- ▶ **Queue** — Your schedule as a live colour-coded table with run controls
-- 📡 **Monitor** — Pipeline stages, progress bar, live CL/CD convergence plot
-- 📊 **Charts** — Interactive polars, drag charts, L/D maps — hover to identify
-- 🖼 **Images** — Browse and zoom geometry, mesh, pressure and velocity contours
+- 📋 **Dashboard** — hero header, KPI row, Execution Pipeline, Study Overview, live L/D chart, Recent Activity, Study Summary
+- 🧭 **Sidebar** — Workspace navigation (**Dashboard / Results / Charts / Images**) plus the embedded **Project** tree
+- ▶ **Queue** — your schedule as a persistent, colour-coded table with run controls and status filters
+- 📡 **Monitor** — live pipeline stages, telemetry, and CL/CD + residual convergence plots
+- 📊 **Charts** — interactive presets plus custom X/Y/Colour — hover to identify, PNG export
+- 🖼 **Images** — thumbnail browser + zoom/pan viewer for geometry, mesh, pressure and velocity contours
 - 📈 **Statistics** — Mean, std, min/max for every metric — best case highlighted
-- ⚠️ **Mock mode** — Test the whole application without ANSYS installed
+- 🖥 **Console** — an engineering terminal with typed commands (`help / open / run / stop / reload / mock`)
+- 🎯 **Focus Mode** — hide the sidebar, Queue, and docks so the current page fills the whole window
+- ⚠️ **Mock mode** — test the whole application without ANSYS installed
 
 ---
 
@@ -59,7 +62,7 @@ cd slipstream
 python main.py gui
 ```
 
-The terminal line `Project loaded: config\config.yaml` appears and the window opens. The terminal stays "frozen" — that is normal, the Qt event loop is running.
+The terminal line `Project loaded: config\config.yaml` appears and the window opens (its title shows `Slipstream — CFD Study Manager v2.2.0-dev`). The terminal stays "frozen" — that is normal, the Qt event loop is running.
 
 > 💡 **Tip:** To close the app cleanly, press **Ctrl+Q** or use File → Exit. If a batch is running, Slipstream will ask you to confirm — the current case always finishes before stopping.
 
@@ -71,30 +74,36 @@ The terminal line `Project loaded: config\config.yaml` appears and the window op
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ Menu: File · Run · View · Help                                           │
 │─────────────────────────────────────────────────────────────────────────│
-│ [Open Project] [Reload] │ [▶ Run All] [⏹ Stop] │ [☐ Mock mode]           │
+│ Toolbar: [Open Project] [Reload]  |  SIMULATION  [▶ Run All] [⏹ Stop]   │
+│          [☐ Mock mode (no ANSYS)]                                        │
 │─────────────────────────────────────────────────────────────────────────│
-│ ⚠ ORANGE BANNER (only visible when mock mode is active) ⚠               │
-│─────────────────────────────────────────────────────────────────────────│
-│              │                                          │ QUEUE           │
-│   EXPLORER   │  Dashboard  Results  Charts  Images     │ Run All RunSel  │
-│   Project    │                                          │ ⏹ Stop ☐Retry  │
-│   ⚙ config   │                                          │ Row AOA V St CL │
-│   ▤ schedule │  Central workspace (see tabs below)     │  2  0 20 ✓ .20  │
-│   ⬢ baseline │                                          │  3  0 30 ▶ …    │
-│   Runs       │                                          │─────────────────│
-│   📁 r002…   │                                          │ MONITOR         │
-│      *.png   │                                          │ r003 · 2/8      │
-│              │                                          │ [Stages]        │
-│   [Refresh]  │                                          │ ████████░ 74%   │
-│              │                                          │ CL/CD live plot │
-│─────────────────────────────────────────────────────────────────────────│
-│                       LOG · Statistics (tabbed)                          │
-│─────────────────────────────────────────────────────────────────────────│
-│ engine: case 2/8 — r003_aoa0_v30 · queue: 6 pending · v0.8.0             │
-└─────────────────────────────────────────────────────────────────────────┘
+│ ⚠ MOCK MODE banner — only visible when mock mode is active ⚠            │
+│ ┌─────────┬────────────────────────────────────────────┬──────────────┐ │
+│ │ BRAND   │ WorkspaceHeader (page · project · template │  QUEUE       │ │
+│ │ header  │  · schedule)  [☰ Queue] [⛶ Focus]          │ (persistent  │ │
+│ │ SIDEBAR ├────────────────────────────────────────────┤  panel)      │ │
+│ │ Workspace│                                           │  Run All     │ │
+│ │  • Dashboard    Center page (QStackedWidget):        │  Run Selected│ │
+│ │  • Results      Dashboard / Results / Charts / Images│  Stop after  │ │
+│ │  • Charts                                            │  case        │ │
+│ │  • Images                                            │  …           │ │
+│ │ Project │                                           │  status pills│ │
+│ │  ▾ tree │                                           │  …           │ │
+│ ├─────────┴────────────────────────────────────────────┴──────────────┤ │
+│ │ LOG · Statistics · Console (tabbed bottom dock)                      │ │
+│ ├─────────────────────────────────────────────────────────────────────┤ │
+│ │ engine: case 2/8 … · queue: 6 pending · project · template · Py 3.x  │ │
+│ │  · LIVE · Slipstream v2.2.0-dev                                       │ │
+│ └─────────────────────────────────────────────────────────────────────┘ │
 ```
 
-**Dockable panels:** Every panel can be dragged to a new position, tabbed, or closed from the **View** menu. Use **View → Reset layout** to restore the default arrangement.
+**Sidebar** — the left column holds the brand header, the **Workspace** navigation (Dashboard / Results / Charts / Images), and the **Project** section with the project tree. Clicking a nav entry switches the center page.
+
+**WorkspaceHeader** — the bar above the center page shows the current page, plus a `Project · Template · Schedule` context line. On its right edge: the **Queue toggle** (show/hide the Queue panel) and the **Focus** button (Focus Mode).
+
+**Queue** — a **persistent right-hand panel, not a dock**. It holds the run controls and the schedule table. Hide it with the Queue toggle in the workspace header to give the center workspace more room.
+
+**Docks** — **Monitor** and **Parameters** are docks that are **hidden by default**; reveal them from **View → Monitor / Parameters**. The bottom **Log · Statistics · Console** tab group is visible by default. Any dock can be dragged by its title bar to move or tab it; **View → Reset layout** restores the default arrangement.
 
 ---
 
@@ -103,13 +112,13 @@ The terminal line `Project loaded: config\config.yaml` appears and the window op
 Before running real simulations, verify the whole GUI works using the built-in mock engine. It fabricates plausible aerodynamics and generates demo contour images in about 5 seconds.
 
 ### Step 1 — Enable Mock mode
-Click **Mock mode (no ANSYS)** in the toolbar. When active you'll see:
+Click **Mock mode (no ANSYS)** in the toolbar (or Run → Mock mode). When active you'll see:
 - The button turns **orange**
-- A **persistent orange banner** appears across the top
-- The window title shows **[MOCK MODE]**
+- A **persistent orange banner** appears across the top of the workspace
+- The window title shows **[MOCK MODE]** and the status bar chip reads **MOCK**
 
 ### Step 2 — Click ▶ Run All (or press F5)
-The Queue shows all rows turn **RUNNING** then **DONE**. Switch to the **Monitor** tab (bottom right) to watch the pipeline.
+The Queue shows all rows turn **RUNNING** then **DONE**. Open **View → Monitor** to watch the pipeline as the batch runs.
 
 ### Step 3 — Watch the pipeline stages light up
 
@@ -122,9 +131,10 @@ Each chip turns **blue** when active and **green** when complete. A cached mesh 
 ### Step 4 — Explore the results
 
 All 8 rows are **DONE** with CL/CD values. Go to:
-- **Charts → CL vs AOA** preset
-- **Images tab**
-- **Statistics dock**
+- **Dashboard** — the L/D chart and Study Summary update live
+- **Charts** (sidebar) — the **CL vs AOA** preset
+- **Images** (sidebar)
+- **Statistics** (bottom dock)
 
 to see the full output.
 
@@ -134,11 +144,13 @@ to see the full output.
 
 ## 5. Open your project
 
-### Step 1 — File → Open Project (Ctrl+O)
-Navigate to `C:\Users\tejas\Desktop\CFD_Auto\slipstream\config\config.yaml` and click Open.
+### Step 1 — Open a project
+Two ways:
+- **File → Open Project (Ctrl+O)** — navigate to `C:\Users\tejas\Desktop\CFD_Auto\slipstream\config\config.yaml` and click Open.
+- **File → Projects… (Ctrl+Shift+O)** — the **Project Selector** dialog offers **Open Recent / Open Existing / Create New**. It also opens automatically at startup when no project is loaded.
 
 ### Step 2 — Verify the project loaded
-The Dashboard title shows your project path, the Queue populates with rows, and the status bar shows **"N experiments"**. The Explorer dock (left) shows your schedule and baseline case.
+The Dashboard hero header shows your project name and template, the **WorkspaceHeader** context line reads `Project · Template · Schedule`, the Queue populates with rows, and the status bar shows the queue summary. The **Project** section in the sidebar shows your config, schedule, baseline case, and run folders.
 
 ### Step 3 — Before running, close these:
 - ✗ **Workbench GUI** — two instances of Workbench on the same project causes a crash
@@ -148,25 +160,30 @@ The Dashboard title shows your project path, the Queue populates with rows, and 
 
 ## 6. Queue panel and run controls
 
+The Queue is the persistent right-hand panel. Its header line summarises the schedule (`8 cases · 6 pending · 2 done`), and the status filter pills (**ALL / PENDING / RUNNING / DONE / FAILED**) hide rows that don't match.
+
 ```
-┌ Queue dock ──────────────────────────────────────────────────────┐
-│ [▶ Run All] [Run Selected] [⏹ Stop after case] ☐ Retry FAILED    │
-│                                                    Max: [all ▾] │
-│                                                                  │
-│  Row  AOA  Velocity  Status   CL       CD      L/D    It         │
-│  ────────────────────────────────────────────────────────────    │
-│    2    0     20     DONE     0.1969  0.0183  10.78   400        │
-│    3    0     30     FAILED   nan     nan     nan       0        │
-│    4    4     20     DONE    -0.0146  0.0129  -1.13   400        │
-│    5    4     30     RUNNING   …        …        …      …        │
-│    6    8     20     PENDING                                     │
-│    7    8     30     PENDING                                     │
-│    8   12     20     SKIP                                        │
-│    9   12     30     PENDING                                     │
-└──────────────────────────────────────────────────────────────────┘
+┌ Queue ─────────────────────────────────────────────────────────────┐
+│ Queue                        8 cases · 6 pending · 2 done          │
+│ Run: [▶ Run All] [Run Selected] [⏹ Stop after case]                │
+│ [ALL] [PENDING] [RUNNING] [DONE] [FAILED]  ☐ Retry FAILED Max:[all▾]│
+│                                                                    │
+│  Row  AOA  Velocity  Status   CL       CD      L/D    It    Conv   │
+│  ───────────────────────────────────────────────────────────────    │
+│    2    0     20     DONE     0.1969  0.0183  10.78   400    YES   │
+│    3    0     30     FAILED   nan     nan     nan      0    NO     │
+│    4    4     20     DONE    -0.0146  0.0129  -1.13   400    YES   │
+│    5    4     30     RUNNING   …        …        …      …    …     │
+│    6    8     20     PENDING                                       │
+│    7    8     30     PENDING                                       │
+│    8   12     20     SKIP                                          │
+│    9   12     30     PENDING                                       │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
-### Run buttons
+The table columns (Row, then the study inputs, then Status / CL / CD / L/D / It / Conv) are generated from the active template's metadata — hovering an input column header shows its unit and allowed range.
+
+### Run controls
 
 | Button | What it does |
 |--------|-------------|
@@ -174,7 +191,10 @@ The Dashboard title shows your project path, the Queue populates with rows, and 
 | **Run Selected** | Select rows with click/Ctrl+click, then press this to run only those rows. |
 | **⏹ Stop after case** | Graceful stop — finishes the currently running case then halts. Re-run to resume; DONE rows are skipped automatically. |
 | **☑ Retry FAILED** | When ticked, FAILED rows are added back to the queue when you click Run All. |
-| **Max cases** | Set to 1 for a single-case smoke test. "all" (value 0) means no limit. |
+| **Max** | Set to 1 for a single-case smoke test. "all" (value 0) means no limit. |
+
+### Status filter pills
+Click **PENDING / RUNNING / DONE / FAILED** to show only rows in that state (presentation only — nothing is removed from the schedule). Click **ALL** to restore the full list.
 
 ### Right-click context menu
 
@@ -183,52 +203,63 @@ The Dashboard title shows your project path, the Queue populates with rows, and 
 | **Toggle SKIP** | Exclude a row from the batch without deleting it. Toggle again to re-include. |
 | **Re-queue (clear status)** | Clears DONE or FAILED status so the row runs again. Use after fixing a geometry issue. |
 
+> 💡 **Hide the Queue:** click the **Queue toggle** (☰) in the workspace header to collapse the Queue and give the center workspace more room. Click again to restore it at its previous width.
+
 ---
 
 ## 7. Live monitor
 
-Click the **Monitor** tab in the right dock to watch the active case. Every stage updates in real time as the engine progresses.
+Open **View → Monitor** to watch the active case. Every block updates in real time as the engine progresses.
 
 ```
-┌ Monitor dock — case 3/8 ─────────────────────────────────────────┐
-│                                                                   │
-│  Case 3/8 — r005_aoa4_v30              AOA 4°  V 30 m/s          │
-│                                                                   │
-│  [✓ Geo+Mesh]→[✓ Fluent]→[✓ Setup]→[✓ Init]→[▶ Solve]→[ Extract] │
-│                                                                   │
-│  ████████████████████░░░░░░░░░  74%                              │
-│                                                                   │
-│  iter 742   CL= 0.48312   CD= 0.02184                            │
-│                                                                   │
-│  ┌────────────────────── CL ───────── CD ──────────────────┐    │
-│  │  CL   ╭───────────────────                                │    │
-│  │  CD      ╭─────────────────                               │    │
-│  └──────┬──────┬──────┬──────┬──── iteration ─────────────┘   │
-│        100    200    300    400                                   │
-└───────────────────────────────────────────────────────────────────┘
+┌ Monitor — Current Run ──────────────────────────────────────────────┐
+│                                                                      │
+│  Case 3/8 — r005_aoa4_v30              [Running]                    │
+│                                                                      │
+│  [✓ Geo+Mesh]→[✓ Fluent]→[✓ Setup]→[✓ Init]→[▶ Solve]→[ Extract]   │
+│                                                                      │
+│  ████████████████████░░░░░░░░░  74%            Est. remaining 2m 11s│
+│                                                                      │
+│ ┌ Live Telemetry ──────────────────────────────────────────────────┐ │
+│ │ Iterations     742     Min residual  8.2e-06                      │ │
+│ │ CL       0.48312       CD        0.02184                          │ │
+│ └──────────────────────────────────────────────────────────────────┘ │
+│ ┌ Convergence ──────────────── Forces | Residuals ────────────────┐ │
+│ │  CL   ╭───────────────────                                      │ │
+│ │  CD      ╭─────────────────                                     │ │
+│ └──────┬──────┬──────┬──────┬──── iteration ─────────────────────┘ │
+│       100    200    300    400                                     │
+│ ┌ Event History ──────────────────────────────────────────────────┐ │
+│ │ 10:32:07  ▶ Case started — r005_aoa4_v30                        │ │
+│ │ 10:32:05  ◆ Mesh generated                                      │ │
+│ └──────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Reading the monitor
 
 | Element | Meaning |
 |---------|---------|
+| Status chip | **Running / Converged / Done / Failed / Idle** — the current case state |
 | Stage chips | **Blue** = currently active · **Green** = done · **Teal** = cached (mesh reused, WB skipped) · **Red** = failed |
 | Progress bar | Weighted: Geo+Mesh = 0–25%, Solve = 25–95%, Extract = 95–100% |
-| iter N · CL= · CD= | Live values from the current chunk. Updated every ~100 iterations. |
-| CL/CD plot | Convergence history. Flat tail = the solver has converged. The engine declares convergence when both CL and CD are flat within tolerance. |
+| Est. remaining | Estimated time to the case finishing, from iterations so far |
+| Live Telemetry | Iterations, min residual, and the template's force metrics (CL/CD) as live readouts |
+| Convergence | The **Forces** and **Residuals** plots (tabbed). Flat tail = the solver has converged. The engine declares convergence when the forces are flat within tolerance. |
+| Event History | Newest-first feed: mesh generated, solver started, convergence, results written, finished |
 
 > 💡 **What "converged" means:** The engine uses **force flatness**, not residuals. It checks that CL and CD change by less than a threshold over the last 50 samples. You'll see `Converged at iteration N` in the Log when it stops early — this is correct behaviour.
 
 ---
 
-## 8. Results tab and charts
+## 8. Results page and charts
 
-### Results table
-Click the **Results** tab to see the full dataset. Click any column header to sort. Click a row to select that case (the Monitor and Images panels update). Click **Export CSV** to save the entire table.
+### Results page
+Click **Results** in the sidebar to see the full dataset. Click any column header to sort. Click a row to select that case (the Monitor and Images panels update). Click **Export CSV** to save the entire table.
 
-### Charts tab — interactive polars
+### Charts page — interactive plots
 
-Three built-in presets cover the most common aero plots:
+Open **Charts** in the sidebar. The preset buttons cover the most common aero plots (labels are generated from the active template's inputs):
 
 | Preset | X | Y | Color by | What it shows |
 |--------|---|---|----------|--------------|
@@ -236,24 +267,24 @@ Three built-in presets cover the most common aero plots:
 | **Drag polar** | CD | CL | AOA | Classic polar — lower-left = efficient |
 | **L/D vs V** | Velocity | L/D | AOA | Aerodynamic efficiency by speed |
 
-You can also set any **X / Y / Color by** combination manually using the dropdowns. **Hover over any point** to see the case ID and exact values. **Export PNG** saves a high-resolution chart image.
+You can also set any **X / Y / Color by** combination manually using the dropdowns. **Hover over any point** to see the case ID and exact values. **Export PNG…** saves a high-resolution chart image.
 
 > ⚠️ **Current note — inverted AOA:** If your study shows CL *decreasing* with AOA and negative L/D, this is a **geometry rotation sign issue** in DesignModeler (positive P1 rotates nose-down instead of nose-up). The charts and data are correct — the sign convention just needs fixing. Open the Rotate body operation in DM, flip the axis direction, re-export `baseline.cas.h5`, and re-run.
 
 ### Statistics dock (bottom)
-Shows count/mean/std/min/max for every output metric across all DONE cases, plus a headline **Best L/D** case. Visible alongside the Log in a tabbed dock — click **Statistics** to bring it forward.
+Shows count/mean/std/min/max for every output metric across all DONE cases, plus a headline **Best L/D** case. Visible alongside the Log in the tabbed bottom dock — click **Statistics** to bring it forward.
 
 ---
 
 ## 9. Images and artifacts
 
-The **Images** tab lets you browse every image file in a case's artifact folder — geometry screenshots, mesh previews, pressure and velocity contours.
+The **Images** page (sidebar) lets you browse every image file in a case's artifact folder — geometry screenshots, mesh previews, pressure and velocity contours.
 
 ### Step 1 — Select a case
-Use the **Case dropdown** at the top to pick any case, or click a row in the Queue/Results table — the dropdown updates automatically.
+Use the **Case** dropdown at the top to pick any case, or click a row in the Queue/Results table — the dropdown updates automatically.
 
 ### Step 2 — Browse thumbnails
-Thumbnails appear on the left. Real ANSYS runs (with `capture_images: true`) generate 4 images per case:
+Thumbnails appear on the left with a zoomable preview on the right, plus a metadata readout (file · dimensions · size · path). Real ANSYS runs (with `capture_images: true`) generate 4 images per case:
 - `geometry.png` — wireframe view of the wing
 - `mesh.png` — surface mesh with black edges
 - `pressure_contour.png` — static pressure on the wall
@@ -262,10 +293,10 @@ Thumbnails appear on the left. Real ANSYS runs (with `capture_images: true`) gen
 ### Step 3 — Zoom and pan
 - **Scroll wheel** to zoom in/out
 - **Drag** to pan
-- Press **Fit** to reset the view
+- Press the **fit** button to reset the view
 
 ### Step 4 — Open the folder
-Click **Open folder** to see all case artifacts in Windows Explorer: `transcript.trn`, `cfdauto_history.out`, `result.json`, `case.log`, and any exported images.
+Click the **folder** button to see all case artifacts in Windows Explorer: `transcript.trn`, `cfdauto_history.out`, `result.json`, `case.log`, and any exported images.
 
 > 💡 **Enabling real contour images:** To capture actual pressure/velocity contours from Fluent, open `config\config.yaml` and set:
 > ```yaml
@@ -278,15 +309,15 @@ Click **Open folder** to see all case artifacts in Windows Explorer: `transcript
 
 ## 10. Edit experiments
 
-Click the **Parameters** tab in the right dock (next to Queue and Monitor). Click any row in the Queue first to load it.
+Open **View → Parameters**. Click any row in the Queue first to load it.
 
 > ⚠️ **Lock rule:** Inputs can only be edited on rows that have **not produced results yet** (status PENDING, FAILED, or SKIP). Rows with status DONE show their values as read-only to protect provenance.
 
 ### Step 1 — Select a pending row in the Queue
-Click the row. The Parameters panel loads its current AOA and Velocity values.
+Click the row. The Parameters panel loads its current input values.
 
 ### Step 2 — Change the values
-Adjust the **AOA [deg]** and **Velocity [m/s]** spinboxes (and any WBP parameter columns if present).
+Adjust the spinboxes. The editors are **generated from the active template's metadata** — each row shows its display name, allowed range, unit, and default (so an Internal Flow template shows its own parameters here, with no UI change).
 
 ### Step 3 — Click Apply changes
 The workbook is saved atomically. The Queue table updates immediately.
@@ -299,8 +330,8 @@ The **Add experiment** section in the Parameters panel adds new rows to the sche
 
 | Button | What it does |
 |--------|-------------|
-| **＋ Add row** | Appends a new row with the AOA and Velocity values you've set in the spinboxes. Status is PENDING. |
-| **Duplicate selected** | Copies the currently selected row (same AOA, velocity, and any extra parameters) as a new PENDING row. |
+| **＋ Add row** | Appends a new row with the values you've set in the spinboxes. Status is PENDING. |
+| **Duplicate selected** | Copies the currently selected row (same inputs and any extra Workbench parameters) as a new PENDING row. |
 
 ---
 
@@ -323,7 +354,7 @@ Or regenerate a clean schedule from the terminal:
 ```powershell
 python main.py init-template experiments.xlsx
 ```
-Then click **Reload Project** in the toolbar.
+Then click **Reload Project** in the toolbar (Ctrl+R).
 
 ---
 
@@ -331,18 +362,19 @@ Then click **Reload Project** in the toolbar.
 
 | Panel | Location | Purpose |
 |-------|----------|---------|
-| **Dashboard** | Central tab (default) | Status cards, overall progress, L/D chart, recent events, pipeline mirror |
-| **Results** | Central tab | Full sortable dataset table · Export CSV |
-| **Charts** | Central tab | X/Y/colour interactive plots · presets · hover · Export PNG |
-| **Images** | Central tab | Browse and zoom case artifact images |
-| **Explorer** | Left dock | Project tree: config, schedule, baseline case, all case folders |
-| **Queue** | Right dock (top) | Schedule table + run controls + right-click actions |
-| **Parameters** | Right dock (tab) | Edit inputs for selected row · add/duplicate rows |
-| **Monitor** | Right dock (bottom) | Live pipeline stages + progress + CL/CD convergence plot |
+| **Dashboard** | Sidebar → page (default) | Hero header, KPI row, Execution Pipeline, Study Overview, L/D chart, Recent Activity, Study Summary |
+| **Results** | Sidebar → page | Full sortable dataset table · Export CSV |
+| **Charts** | Sidebar → page | X/Y/colour interactive plots · presets · hover · Export PNG |
+| **Images** | Sidebar → page | Browse and zoom case artifact images |
+| **Project** | Sidebar → Project section | Project tree: config, schedule, baseline case, all case folders |
+| **Queue** | Right panel (persistent) | Schedule table + run controls + status filters + right-click actions |
+| **Parameters** | Right dock — hidden by default | Edit inputs for selected row · add/duplicate rows (View → Parameters) |
+| **Monitor** | Right dock — hidden by default | Live pipeline stages + telemetry + CL/CD + residual convergence (View → Monitor) |
 | **Log** | Bottom dock (tab) | Full engine log stream — same as the old terminal output |
 | **Statistics** | Bottom dock (tab) | Descriptive stats for all DONE cases + best L/D headline |
+| **Console** | Bottom dock (tab) | Engineering terminal — `help / open / run / stop / reload / mock` |
 
-> 💡 **Rearranging panels:** Drag any dock by its title bar to move it. Panels can be tabbed together by dropping one on top of another. Use **View → Reset layout** to restore the default positions.
+> 💡 **Rearranging:** The Monitor, Parameters, Log, Statistics, and Console are docks — drag any by its title bar to move or tab it. Use **View → Reset layout** to restore the default positions. The Sidebar and Queue are fixed panels; the Queue can be hidden with the ☰ toggle in the workspace header, and **Focus Mode** hides everything but the current page.
 
 ---
 
@@ -354,6 +386,7 @@ Then click **Reload Project** in the toolbar.
 | `Shift+F5` | Stop after current case |
 | `Ctrl+O` | Open Project |
 | `Ctrl+R` | Reload Project (re-reads config + workbook) |
+| `Ctrl+Shift+O` | Projects… (Open Recent / Open Existing / Create New) |
 | `Ctrl+Q` | Exit (asks if a batch is running) |
 | `Ctrl+A` | Select all rows in Queue / Results table |
 | `Scroll wheel` | Zoom in/out in the Images viewer |
@@ -378,7 +411,7 @@ This is expected and handled automatically. Re-run the app and press **▶ Run A
 Close `experiments.xlsx` in Excel. The engine retries 10 times (60 seconds) — if you close Excel during that window, the save succeeds.
 
 ### Workbench crashes (rc=3221225477)
-Close the Workbench GUI before running. Only one Workbench instance can have a project open at a time. Check the `runs\cases\<id>\wb_stdout.log` file for the actual error (visible in Explorer dock → double-click the file).
+Close the Workbench GUI before running. Only one Workbench instance can have a project open at a time. Check the `runs\cases\<id>\wb_stdout.log` file for the actual error (visible in the Project section of the sidebar → double-click the file).
 
 ### CL is negative / L/D chart goes downward
 This is the rotation sign issue: the P1 parameter is rotating the wing nose-down for positive values. Fix: in DesignModeler, open the Rotate body operation and flip the rotation axis direction. Re-export `baseline.cas.h5` and re-run.
@@ -416,4 +449,4 @@ Must print `capture_images = True`.
 
 ---
 
-**Slipstream v0.8 · Apache-2.0 · Engine: cfdauto · GUI: PySide6 + pyqtgraph · No telemetry · No cloud required**
+**Slipstream v2.2.0-dev · Apache-2.0 · Engine: cfdauto · GUI: PySide6 + pyqtgraph · No telemetry · No cloud required**

@@ -1,5 +1,4 @@
-"""CollapsibleSection — a reusable, toggle-able container (GUI Modernization,
-v1.0.0-rc2).
+"""CollapsibleSection — a reusable, toggle-able container (Neo v2.2).
 
 Used for anything that shouldn't permanently occupy screen space when
 empty/inactive — the canonical case being the Study Summary's warnings

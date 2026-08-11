@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Slipstream v0.8 — User Guide</title>
+<title>Slipstream v2.2 — User Guide</title>
 <style>
   :root {
     --bg:       #1e1f22;
@@ -362,7 +362,7 @@
 <nav>
   <div class="nav-logo">
     <div class="wordmark">⚡ Slipstream</div>
-    <div class="tagline">CFD Study Manager v0.8</div>
+    <div class="tagline">CFD Study Manager v2.2 — Neo UI</div>
   </div>
 
   <div class="section-head">Getting started</div>
@@ -395,7 +395,7 @@
   <!-- ─── HERO ──────────────────────────────────────── -->
   <div class="hero">
     <div>
-      <div class="hero-badge">v0.8 GUIDE</div>
+      <div class="hero-badge">NEO v2.2 GUIDE</div>
     </div>
     <div>
       <p>
@@ -416,32 +416,47 @@
       <div class="card">
         <div class="icon">📋</div>
         <div class="title">Dashboard</div>
-        <div class="desc">Status cards, overall progress, live L/D chart, recent events</div>
+        <div class="desc">Hero header, KPI row, Execution Pipeline, Study Overview, live L/D chart, Study Summary</div>
+      </div>
+      <div class="card">
+        <div class="icon">🧭</div>
+        <div class="title">Sidebar</div>
+        <div class="desc">Workspace navigation (Dashboard / Results / Charts / Images) + Project tree</div>
       </div>
       <div class="card">
         <div class="icon">▶</div>
         <div class="title">Queue</div>
-        <div class="desc">Your schedule as a live colour-coded table with run controls</div>
+        <div class="desc">Persistent schedule table with run controls and status filter pills</div>
       </div>
       <div class="card">
         <div class="icon">📡</div>
         <div class="title">Monitor</div>
-        <div class="desc">Pipeline stages, progress bar, live CL/CD convergence plot</div>
+        <div class="desc">Live pipeline stages, telemetry, CL/CD + residual convergence plots</div>
       </div>
       <div class="card">
         <div class="icon">📊</div>
         <div class="title">Charts</div>
-        <div class="desc">Interactive polars, drag charts, L/D maps — hover to identify</div>
+        <div class="desc">Interactive presets + custom X/Y/Colour — hover to identify, PNG export</div>
       </div>
       <div class="card">
         <div class="icon">🖼</div>
         <div class="title">Images</div>
-        <div class="desc">Browse and zoom geometry, mesh, pressure and velocity contours</div>
+        <div class="desc">Thumbnail browser + zoom/pan viewer for geometry, mesh and contour images</div>
       </div>
       <div class="card">
         <div class="icon">📈</div>
         <div class="title">Statistics</div>
         <div class="desc">Mean, std, min/max for every metric — best case highlighted</div>
+      </div>
+      <div class="card">
+        <div class="icon">🖥</div>
+        <div class="title">Console</div>
+        <div class="desc">Engineering terminal — help / open / run / stop / reload / mock</div>
+      </div>
+      <div class="card">
+        <div class="icon">🎯</div>
+        <div class="title">Focus Mode</div>
+        <div class="desc">Hide sidebar, Queue and docks so the current page fills the window</div>
       </div>
     </div>
   </section>
@@ -490,30 +505,33 @@ cd slipstream</pre>
     <div class="ui-map">
       <div class="ui-map-bar">
         <span class="dot r"></span><span class="dot a"></span><span class="dot g"></span>
-        &nbsp; Slipstream — CFD Study Manager v0.8
+        &nbsp; Slipstream — CFD Study Manager v2.2.0-dev
       </div>
       <pre>
 <span class="hl-dim">┌ Menu: File · Run · View · Help ──────────────────────────────────────────┐</span>
-<span class="hl-dim">├</span> <span class="hl-accent">Open Project</span>  <span class="hl-accent">Reload</span>  │  <span class="hl-green">▶ Run All</span>  <span class="hl-red">⏹ Stop after case</span>  <span class="hl-amber">☐ Mock mode</span> <span class="hl-dim">─┤</span>
+<span class="hl-dim">├</span> <span class="hl-accent">Open Project</span> <span class="hl-accent">Reload</span> │ SIMULATION <span class="hl-green">▶ Run All</span> <span class="hl-red">⏹ Stop</span> <span class="hl-amber">☐ Mock</span> <span class="hl-dim">─┤</span>
 <span class="hl-dim">├──────────────┬─────────────────────────────────────────┬────────────────┤</span>
-│ <span class="hl-accent">EXPLORER</span>     │  <span class="hl-accent">Dashboard</span>  Results  Charts  Images      │ <span class="hl-accent">QUEUE</span>           │
-│ Project      │                                         │ Run All RunSel │
-│ ⚙ config     │   <span class="hl-accent">Central workspace</span> (see tabs below)    │ ⏹ Stop ☐Retry  │
-│ ▤ schedule   │                                         │ Row AOA V  St  │
-│ ⬢ baseline   │                                         ├────────────────┤
-│ Runs         │                                         │ <span class="hl-accent">MONITOR</span>         │
-│  📁 r002…    │                                         │ r003 · 2/8     │
-│    *.png     │                                         │ [Stage chips]  │
-│  [Refresh]   │                                         │ ████████░ 74%  │
-│              │                                         │ CL/CD live plot│
-<span class="hl-dim">├──────────────┴────────── LOG ▸ Statistics (tabbed) ────┴────────────────┤</span>
+│ <span class="hl-accent">SIDEBAR</span>     │  WorkspaceHeader: page · project ·      │ <span class="hl-accent">QUEUE</span>           │
+│ Brand        │  template · schedule   [☰ Queue] [⛶]    │ (persistent   │
+│              │                                         │  right panel) │
+│ <span class="hl-accent">Workspace</span>    │  <span class="hl-accent">Center page</span> — Dashboard / Results /  │ [▶ Run All]    │
+│  • Dashboard │  Charts / Images (sidebar pages)         │ [Run Selected]│
+│  • Results   │                                         │ [⏹ Stop case] │
+│  • Charts    │                                         │ [ALL][PENDING]│
+│  • Images    │                                         │ [DONE][FAILED]│
+│              │                                         │ Row AOA V  St  │
+│ <span class="hl-accent">Project</span>      │                                         │  2  0 20 ✓ …  │
+│  ▾ config    │                                         │  3  0 30 ▶ …  │
+│    schedule  │                                         │               │
+│    runs      │                                         │               │
+<span class="hl-dim">├──────────────┴───────── LOG · Statistics · Console ────┴────────────────┤</span>
 │ <span class="hl-dim">11:39:52 INFO  Case 2/8 started…</span>                                        │
-<span class="hl-dim">├ engine: running · 6 pending · 2 done · v0.8.0 ─────────────────────────┤</span>
+<span class="hl-dim">├ engine: case 2/8 — r003_aoa0_v30 · queue: 6 pending · v2.2.0-dev ──────┤</span>
       </pre>
     </div>
 
-    <h3>Dockable panels</h3>
-    <p>Every panel (Explorer, Queue, Monitor, Log, Statistics) can be <strong>dragged to a new position</strong>, tabbed, or closed from the <strong>View</strong> menu. Use <strong>View → Reset layout</strong> to restore the default arrangement.</p>
+    <h3>Sidebar, Queue &amp; docks</h3>
+    <p>The <strong>Sidebar</strong> holds the brand header, the <strong>Workspace</strong> navigation (Dashboard / Results / Charts / Images), and the <strong>Project</strong> section with the project tree. The <strong>Queue</strong> is a <strong>persistent right-hand panel, not a dock</strong> — hide it with the ☰ toggle in the workspace header. <strong>Monitor</strong> and <strong>Parameters</strong> are docks that are <strong>hidden by default</strong> — reveal them from <strong>View → Monitor / Parameters</strong>. The bottom <strong>Log · Statistics · Console</strong> group is a tabbed dock; drag any dock by its title bar to move or tab it. Use <strong>View → Reset layout</strong> to restore the default arrangement.</p>
   </section>
 
   <!-- ─── MOCK RUN ─────────────────────────────────── -->
@@ -533,7 +551,7 @@ cd slipstream</pre>
         <div class="step-num">2</div>
         <div>
           <h4>Click ▶ Run All (or press F5)</h4>
-          <p>The Queue shows all rows turn <span class="chip running">RUNNING</span> then <span class="chip done">DONE</span>. Switch to the <strong>Monitor</strong> tab (bottom right) to watch the pipeline.</p>
+          <p>The Queue shows all rows turn <span class="chip running">RUNNING</span> then <span class="chip done">DONE</span>. Open <strong>View → Monitor</strong> to watch the pipeline as the batch runs.</p>
         </div>
       </div>
       <div class="step">
@@ -558,7 +576,7 @@ cd slipstream</pre>
         <div class="step-num green">✓</div>
         <div>
           <h4>Explore the results</h4>
-          <p>All 8 rows are <span class="chip done">DONE</span> with CL/CD values. Go to <strong>Charts → CL vs AOA</strong>, <strong>Images tab</strong>, and the <strong>Statistics dock</strong> to see the full output.</p>
+          <p>All 8 rows are <span class="chip done">DONE</span> with CL/CD values. Go to <strong>Charts</strong> (sidebar) → <strong>CL vs AOA</strong>, the <strong>Images</strong> page, and the <strong>Statistics</strong> dock to see the full output.</p>
         </div>
       </div>
     </div>
@@ -577,15 +595,15 @@ cd slipstream</pre>
       <div class="step">
         <div class="step-num">1</div>
         <div>
-          <h4>File → Open Project (Ctrl+O)</h4>
-          <p>Navigate to <code>C:\Users\tejas\Desktop\CFD_Auto\slipstream\config\config.yaml</code> and click Open.</p>
+          <h4>Open a project</h4>
+          <p><strong>File → Open Project (Ctrl+O)</strong> — navigate to <code>C:\Users\tejas\Desktop\CFD_Auto\slipstream\config\config.yaml</code> and click Open. Or use <strong>File → Projects… (Ctrl+Shift+O)</strong> for the Project Selector (Open Recent / Open Existing / Create New), which also opens automatically at startup when no project is loaded.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">2</div>
         <div>
           <h4>Verify the project loaded</h4>
-          <p>The Dashboard title shows your project path, the Queue populates with rows, and the status bar shows <strong>"N experiments"</strong>. The Explorer dock (left) shows your schedule and baseline case.</p>
+          <p>The Dashboard hero shows your project name and template, the workspace header reads <strong>Project · Template · Schedule</strong>, the Queue populates with rows, and the status bar shows the queue summary. The <strong>Project</strong> section in the sidebar shows your config, schedule, baseline case, and run folders.</p>
         </div>
       </div>
       <div class="step">
@@ -606,23 +624,28 @@ cd slipstream</pre>
     <div class="ui-map">
       <div class="ui-map-bar">
         <span class="dot r"></span><span class="dot a"></span><span class="dot g"></span>
-        &nbsp; Queue dock
+        &nbsp; Queue — persistent right panel
       </div>
       <pre>
-  <span class="hl-green">▶ Run All</span>   <span class="hl-accent">Run Selected</span>   <span class="hl-red">⏹ Stop after case</span>  <span class="hl-dim">☐ Retry FAILED</span>  Max: <span class="hl-accent">all</span>
+  <span class="hl-green">▶ Run All</span>   <span class="hl-accent">Run Selected</span>   <span class="hl-red">⏹ Stop after case</span>   <span class="hl-dim">☐ Retry FAILED</span>  Max: <span class="hl-accent">all</span>
 
-  Row  AOA   Velocity  <span class="hl-dim">Status</span>    CL        CD       L/D    It
+  <span class="hl-dim">[ALL] [PENDING] [RUNNING] [DONE] [FAILED]</span>   <span class="hl-dim">8 cases · 6 pending · 2 done</span>
+
+  Row  AOA   Velocity  <span class="hl-dim">Status</span>    CL        CD       L/D    It   Conv
   ─────────────────────────────────────────────────────────────
-   2    0      20     <span class="hl-green">DONE</span>     0.1969   0.0183   10.78   400
-   3    0      30     <span class="hl-red">FAILED</span>    nan      nan      nan      0
-   4    4      20     <span class="hl-green">DONE</span>    -0.0146  0.0129   -1.13   400
-   5    4      30     <span class="hl-accent">RUNNING</span>   …        …        …       …
+   2    0      20     <span class="hl-green">DONE</span>     0.1969   0.0183   10.78   400   YES
+   3    0      30     <span class="hl-red">FAILED</span>    nan      nan      nan      0   NO
+   4    4      20     <span class="hl-green">DONE</span>    -0.0146  0.0129   -1.13   400   YES
+   5    4      30     <span class="hl-accent">RUNNING</span>   …        …        …       …   …
    6    8      20     <span class="hl-dim">PENDING</span>
    7    8      30     <span class="hl-dim">PENDING</span>
    8   12      20     <span class="hl-dim">SKIP</span>
    9   12      30     <span class="hl-dim">PENDING</span>
       </pre>
     </div>
+
+    <h3>Status filter pills</h3>
+    <p>Click <strong>PENDING / RUNNING / DONE / FAILED</strong> to show only rows in that state (presentation only — nothing is removed from the schedule). Click <strong>ALL</strong> to restore the full list.</p>
 
     <h3>Run buttons</h3>
     <table class="ref-table">
@@ -631,7 +654,7 @@ cd slipstream</pre>
       <tr><td><strong>Run Selected</strong></td><td>Select rows with click/Ctrl+click, then press this to run only those rows.</td></tr>
       <tr><td><strong>⏹ Stop after case</strong></td><td>Graceful stop — finishes the currently running case then halts. Re-run to resume; DONE rows are skipped automatically.</td></tr>
       <tr><td><strong>☑ Retry FAILED</strong></td><td>When ticked, FAILED rows are added back to the queue when you click Run All.</td></tr>
-      <tr><td><strong>Max cases</strong></td><td>Set to 1 for a single-case smoke test. "all" (value 0) means no limit.</td></tr>
+      <tr><td><strong>Max</strong></td><td>Set to 1 for a single-case smoke test. "all" (value 0) means no limit.</td></tr>
     </table>
 
     <h3>Right-click context menu</h3>
@@ -640,28 +663,33 @@ cd slipstream</pre>
       <tr><td><strong>Toggle SKIP</strong></td><td>Exclude a row from the batch without deleting it. Toggle again to re-include.</td></tr>
       <tr><td><strong>Re-queue (clear status)</strong></td><td>Clears DONE or FAILED status so the row runs again. Use after fixing a geometry issue.</td></tr>
     </table>
+
+    <div class="callout tip">
+      <div class="label">💡 Hide the Queue</div>
+      <p>Click the <strong>Queue toggle</strong> (☰) in the workspace header to collapse the Queue and give the center workspace more room. Click again to restore it at its previous width.</p>
+    </div>
   </section>
 
   <!-- ─── MONITOR ───────────────────────────────────── -->
   <section id="monitor">
     <h2>4 · Live monitor</h2>
-    <p>Click the <strong>Monitor</strong> tab in the right dock to watch the active case. Every stage updates in real time as the engine progresses.</p>
+    <p>Open <strong>View → Monitor</strong> to watch the active case (the dock is hidden by default). Every block updates in real time as the engine progresses.</p>
 
     <div class="ui-map">
       <div class="ui-map-bar">
         <span class="dot r"></span><span class="dot a"></span><span class="dot g"></span>
-        &nbsp; Monitor dock — case 3/8
+        &nbsp; Monitor — hidden dock, shown via View → Monitor
       </div>
       <pre>
-  <span class="hl-accent">Case 3/8 — r005_aoa4_v30</span>                    <span class="hl-dim">AOA 4°  V 30 m/s</span>
+  <span class="hl-accent">Case 3/8 — r005_aoa4_v30</span>                    <span class="hl-green">[Running]</span>
 
   <span class="hl-green">[✓ Geo+Mesh]</span>→<span class="hl-green">[✓ Fluent]</span>→<span class="hl-green">[✓ Setup]</span>→<span class="hl-green">[✓ Init]</span>→<span class="hl-accent">[▶ Solve]</span>→<span class="hl-dim">[  Extract  ]</span>
 
-  <span class="hl-accent">████████████████████░░░░░░░░░</span>  74%
+  <span class="hl-accent">████████████████████░░░░░░░░░</span>  74%          <span class="hl-dim">Est. remaining 2m 11s</span>
 
-  iter 742   CL= 0.48312   CD= 0.02184
+  <span class="hl-dim">Live Telemetry:</span>  <span class="hl-dim">iter 742</span>  <span class="hl-accent">CL= 0.48312</span>  <span class="hl-amber">CD= 0.02184</span>
 
-  <span class="hl-dim">┌───────────────────────── CL ─────── CD ─────────────────────┐</span>
+  <span class="hl-dim">┌────────────── Convergence — Forces │ Residuals ──────────────┐</span>
   <span class="hl-dim">│</span>  <span class="hl-accent">CL</span>   <span class="hl-accent">╭───────────────────────</span>                               <span class="hl-dim">│</span>
   <span class="hl-dim">│</span>  <span class="hl-amber">CD</span>      <span class="hl-amber">╭─────────────────────</span>                             <span class="hl-dim">│</span>
   <span class="hl-dim">└──────┬──────┬──────┬──────┬──────┬───── iteration ──────────┘</span>
@@ -672,10 +700,13 @@ cd slipstream</pre>
     <h3>Reading the monitor</h3>
     <table class="ref-table">
       <tr><th>Element</th><th>Meaning</th></tr>
+      <tr><td>Status chip</td><td><strong>Running / Converged / Done / Failed / Idle</strong> — the current case state</td></tr>
       <tr><td>Stage chips</td><td><span style="color:var(--accent)">Blue</span> = currently active · <span style="color:var(--green)">Green</span> = done · <span style="color:var(--teal)">Teal</span> = cached (mesh reused, WB skipped) · <span style="color:var(--red)">Red</span> = failed</td></tr>
       <tr><td>Progress bar</td><td>Weighted: Geo+Mesh = 0–25%, Solve = 25–95%, Extract = 95–100%</td></tr>
-      <tr><td>iter N · CL= · CD=</td><td>Live values from the current chunk. Updated every ~100 iterations.</td></tr>
-      <tr><td>CL/CD plot</td><td>Convergence history. Flat tail = the solver has converged. The engine declares convergence when both CL and CD are flat within tolerance.</td></tr>
+      <tr><td>Est. remaining</td><td>Estimated time to the case finishing, from iterations so far</td></tr>
+      <tr><td>Live Telemetry</td><td>Iterations, min residual, and the template's force metrics (CL/CD) as live readouts</td></tr>
+      <tr><td>Convergence</td><td>The <strong>Forces</strong> and <strong>Residuals</strong> plots (tabbed). Flat tail = the solver has converged. The engine declares convergence when the forces are flat within tolerance.</td></tr>
+      <tr><td>Event History</td><td>Newest-first feed: mesh generated, solver started, convergence, results written, finished</td></tr>
     </table>
 
     <div class="callout tip">
@@ -686,13 +717,13 @@ cd slipstream</pre>
 
   <!-- ─── RESULTS ───────────────────────────────────── -->
   <section id="results">
-    <h2>5 · Results tab and charts</h2>
+    <h2>5 · Results page and charts</h2>
 
-    <h3>Results table</h3>
-    <p>Click the <strong>Results</strong> tab to see the full dataset. Click any column header to sort. Click a row to select that case (the Monitor and Images panels update). Click <strong>Export CSV</strong> to save the entire table.</p>
+    <h3>Results page</h3>
+    <p>Click <strong>Results</strong> in the sidebar to see the full dataset. Click any column header to sort. Click a row to select that case (the Monitor and Images panels update). Click <strong>Export CSV</strong> to save the entire table.</p>
 
-    <h3>Charts tab — interactive polars</h3>
-    <p>Three built-in presets cover the most common aero plots:</p>
+    <h3>Charts page — interactive plots</h3>
+    <p>Open <strong>Charts</strong> in the sidebar. The preset buttons cover the most common aero plots (labels are generated from the active template's inputs):</p>
 
     <table class="ref-table">
       <tr><th>Preset</th><th>X</th><th>Y</th><th>Color by</th><th>What it shows</th></tr>
@@ -715,35 +746,35 @@ cd slipstream</pre>
   <!-- ─── IMAGES ───────────────────────────────────── -->
   <section id="images">
     <h2>6 · Images and artifacts</h2>
-    <p>The <strong>Images</strong> tab lets you browse every image file in a case's artifact folder — geometry screenshots, mesh previews, pressure and velocity contours.</p>
+    <p>The <strong>Images</strong> page (sidebar) lets you browse every image file in a case's artifact folder — geometry screenshots, mesh previews, pressure and velocity contours.</p>
 
     <div class="steps">
       <div class="step">
         <div class="step-num">1</div>
         <div>
           <h4>Select a case</h4>
-          <p>Use the <strong>Case dropdown</strong> at the top to pick any case, or click a row in the Queue/Results table — the dropdown updates automatically.</p>
+          <p>Use the <strong>Case</strong> dropdown at the top to pick any case, or click a row in the Queue/Results table — the dropdown updates automatically.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">2</div>
         <div>
           <h4>Browse thumbnails</h4>
-          <p>Thumbnails appear on the left: geometry, mesh, pressure contour, velocity contour. Click any thumbnail to load the full image.</p>
+          <p>Thumbnails appear on the left with a zoomable preview on the right, plus a metadata readout (file · dimensions · size · path). Click any thumbnail to load the full image.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">3</div>
         <div>
           <h4>Zoom and pan</h4>
-          <p><strong>Scroll wheel</strong> to zoom in/out. <strong>Drag</strong> to pan. Press <strong>Fit</strong> to reset the view.</p>
+          <p><strong>Scroll wheel</strong> to zoom in/out. <strong>Drag</strong> to pan. Press the <strong>fit</strong> toolbar button to reset the view.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">4</div>
         <div>
           <h4>Open the folder</h4>
-          <p>Click <strong>Open folder</strong> to see all case artifacts in Windows Explorer: <code>transcript.trn</code>, <code>cfdauto_history.out</code>, <code>result.json</code>, <code>case.log</code>, and any exported images.</p>
+          <p>Click the <strong>folder</strong> toolbar button to see all case artifacts in Windows Explorer: <code>transcript.trn</code>, <code>cfdauto_history.out</code>, <code>result.json</code>, <code>case.log</code>, and any exported images.</p>
         </div>
       </div>
     </div>
@@ -757,7 +788,7 @@ cd slipstream</pre>
   <!-- ─── EDIT ─────────────────────────────────────── -->
   <section id="edit">
     <h2>Edit experiments</h2>
-    <p>Click the <strong>Parameters</strong> tab in the right dock (next to Queue and Monitor). Click any row in the Queue first to load it.</p>
+    <p>Open <strong>View → Parameters</strong> (the dock is hidden by default). Click any row in the Queue first to load it.</p>
 
     <div class="callout warn">
       <div class="label">⚠ Lock rule</div>
@@ -769,14 +800,14 @@ cd slipstream</pre>
         <div class="step-num">1</div>
         <div>
           <h4>Select a pending row in the Queue</h4>
-          <p>Click the row. The Parameters panel loads its current AOA and Velocity values.</p>
+          <p>Click the row. The Parameters panel loads its current input values. The editors are <strong>generated from the active template's metadata</strong> — each row shows its display name, allowed range, unit, and default.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">2</div>
         <div>
           <h4>Change the values</h4>
-          <p>Adjust the <strong>AOA [deg]</strong> and <strong>Velocity [m/s]</strong> spinboxes (and any WBP parameter columns if present).</p>
+          <p>Adjust the spinboxes for the study's input parameters (and any free Workbench parameter columns if present).</p>
         </div>
       </div>
       <div class="step">
@@ -796,8 +827,8 @@ cd slipstream</pre>
 
     <table class="ref-table">
       <tr><th>Button</th><th>What it does</th></tr>
-      <tr><td><strong>＋ Add row</strong></td><td>Appends a new row with the AOA and Velocity values you've set in the spinboxes. Status is PENDING.</td></tr>
-      <tr><td><strong>Duplicate selected</strong></td><td>Copies the currently selected row (same AOA, velocity, and any extra parameters) as a new PENDING row.</td></tr>
+      <tr><td><strong>＋ Add row</strong></td><td>Appends a new row with the values you've set in the spinboxes. Status is PENDING.</td></tr>
+      <tr><td><strong>Duplicate selected</strong></td><td>Copies the currently selected row (same inputs and any extra Workbench parameters) as a new PENDING row.</td></tr>
     </table>
   </section>
 
@@ -839,21 +870,22 @@ cd slipstream</pre>
 
     <table class="ref-table">
       <tr><th>Panel</th><th>Location</th><th>Purpose</th></tr>
-      <tr><td><strong>Dashboard</strong></td><td>Central tab (default)</td><td>Status cards, overall progress, L/D chart, recent events, pipeline mirror</td></tr>
-      <tr><td><strong>Results</strong></td><td>Central tab</td><td>Full sortable dataset table · Export CSV</td></tr>
-      <tr><td><strong>Charts</strong></td><td>Central tab</td><td>X/Y/colour interactive plots · presets · hover · Export PNG</td></tr>
-      <tr><td><strong>Images</strong></td><td>Central tab</td><td>Browse and zoom case artifact images</td></tr>
-      <tr><td><strong>Explorer</strong></td><td>Left dock</td><td>Project tree: config, schedule, baseline case, all case folders</td></tr>
-      <tr><td><strong>Queue</strong></td><td>Right dock (top)</td><td>Schedule table + run controls + right-click actions</td></tr>
-      <tr><td><strong>Parameters</strong></td><td>Right dock (tab)</td><td>Edit inputs for selected row · add/duplicate rows</td></tr>
-      <tr><td><strong>Monitor</strong></td><td>Right dock (bottom)</td><td>Live pipeline stages + progress + CL/CD convergence plot</td></tr>
+      <tr><td><strong>Dashboard</strong></td><td>Sidebar → page (default)</td><td>Hero header, KPI row, Execution Pipeline, Study Overview, L/D chart, Recent Activity, Study Summary</td></tr>
+      <tr><td><strong>Results</strong></td><td>Sidebar → page</td><td>Full sortable dataset table · Export CSV</td></tr>
+      <tr><td><strong>Charts</strong></td><td>Sidebar → page</td><td>X/Y/colour interactive plots · presets · hover · Export PNG</td></tr>
+      <tr><td><strong>Images</strong></td><td>Sidebar → page</td><td>Browse and zoom case artifact images</td></tr>
+      <tr><td><strong>Project</strong></td><td>Sidebar → Project section</td><td>Project tree: config, schedule, baseline case, all case folders</td></tr>
+      <tr><td><strong>Queue</strong></td><td>Right panel (persistent)</td><td>Schedule table + run controls + status filters + right-click actions</td></tr>
+      <tr><td><strong>Parameters</strong></td><td>Right dock — hidden by default</td><td>Edit inputs for selected row · add/duplicate rows (View → Parameters)</td></tr>
+      <tr><td><strong>Monitor</strong></td><td>Right dock — hidden by default</td><td>Live pipeline stages + telemetry + CL/CD + residual convergence (View → Monitor)</td></tr>
       <tr><td><strong>Log</strong></td><td>Bottom dock (tab)</td><td>Full engine log stream — same as the old terminal output</td></tr>
       <tr><td><strong>Statistics</strong></td><td>Bottom dock (tab)</td><td>Descriptive stats for all DONE cases + best L/D headline</td></tr>
+      <tr><td><strong>Console</strong></td><td>Bottom dock (tab)</td><td>Engineering terminal — help / open / run / stop / reload / mock</td></tr>
     </table>
 
     <div class="callout tip">
-      <div class="label">💡 Tip — rearranging panels</div>
-      <p>Drag any dock by its title bar to move it. Panels can be tabbed together by dropping one on top of another. Use <strong>View → Reset layout</strong> to restore the default positions.</p>
+      <div class="label">💡 Tip — rearranging</div>
+      <p>The Monitor, Parameters, Log, Statistics, and Console are docks — drag any by its title bar to move or tab it. Use <strong>View → Reset layout</strong> to restore the default positions. The Sidebar and Queue are fixed panels; the Queue can be hidden with the ☰ toggle in the workspace header, and <strong>Focus Mode</strong> hides everything but the current page.</p>
     </div>
   </section>
 
@@ -867,6 +899,7 @@ cd slipstream</pre>
       <tr><td><span class="key">Shift+F5</span></td><td>Stop after current case</td></tr>
       <tr><td><span class="key">Ctrl+O</span></td><td>Open Project</td></tr>
       <tr><td><span class="key">Ctrl+R</span></td><td>Reload Project (re-reads config + workbook)</td></tr>
+      <tr><td><span class="key">Ctrl+Shift+O</span></td><td>Projects… (Open Recent / Open Existing / Create New)</td></tr>
       <tr><td><span class="key">Ctrl+Q</span></td><td>Exit (asks if a batch is running)</td></tr>
       <tr><td><span class="key">Ctrl+A</span></td><td>Select all rows in Queue / Results table</td></tr>
       <tr><td><span class="key">Scroll wheel</span></td><td>Zoom in/out in the Images viewer</td></tr>
@@ -893,7 +926,7 @@ cd slipstream</pre>
     <p>Close <code>experiments.xlsx</code> in Excel. The engine retries 10 times (60 seconds) — if you close Excel during that window, the save succeeds.</p>
 
     <h3>Workbench crashes (rc=3221225477)</h3>
-    <p>Close the Workbench GUI before running. Only one Workbench instance can have a project open at a time. Check the <code>runs\cases\&lt;id&gt;\wb_stdout.log</code> file for the actual error (visible in Explorer dock → double-click the file).</p>
+    <p>Close the Workbench GUI before running. Only one Workbench instance can have a project open at a time. Check the <code>runs\cases\&lt;id&gt;\wb_stdout.log</code> file for the actual error (visible in the Project section of the sidebar → double-click the file).</p>
 
     <h3>CL is negative / L/D chart goes downward</h3>
     <p>This is the rotation sign issue: the P1 parameter is rotating the wing nose-down for positive values. Fix: in DesignModeler, open the Rotate body operation and flip the rotation axis direction. Re-export <code>baseline.cas.h5</code> and re-run.</p>
@@ -936,7 +969,7 @@ print('capture_images =', cfg['fluent'].get('capture_images', False))
   </section>
 
   <div class="footer">
-    Slipstream v0.8 · Apache-2.0 · Engine: cfdauto · GUI: PySide6 + pyqtgraph · No telemetry · No cloud required
+    Slipstream v2.2.0-dev · Apache-2.0 · Engine: cfdauto · GUI: PySide6 + pyqtgraph · No telemetry · No cloud required
   </div>
 
 </main>

@@ -1,4 +1,4 @@
-"""GUI Modernization (v1.0.0-rc2) — behavioral tests for gui.widgets.Sidebar.
+"""Neo v2.2 — behavioral tests for gui.widgets.Sidebar.
 
 The sidebar's entire contract is: navigation only, one-way signal, never
 touches a page/panel directly. These tests verify exactly that boundary —

@@ -1,4 +1,4 @@
-"""GUI Modernization (v1.0.0-rc2) — behavioral tests for
+"""Neo v2.2 — behavioral tests for
 gui.widgets.CollapsibleSection.
 
 The one behavior this widget must never get wrong: toggling visibility

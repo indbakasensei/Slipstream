@@ -1,6 +1,6 @@
 """Dashboard stat card: big number, small caption, optional accent colour.
 
-GUI Modernization (v1.0.0-rc2): restyled to the shared card/spacing design
+Neo v2.2: restyled to the shared card/spacing design
 system in gui/theme.py (larger padding, bigger number, consistent radius)
 — the public surface (``value_lbl``, ``set_value()``) is unchanged so
 every existing caller/test keeps working exactly as before.
