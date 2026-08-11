@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -108,7 +109,7 @@ class AppState(QObject):
         for exp in self.excel.read_experiments():
             out = self.excel.read_row_outputs(exp.row)
             rec: Dict[str, object] = {
-                "Row": exp.row, "CaseID": exp.case_id,
+                "Row": exp.row, "CaseID": _case_id(exp),
                 "Status": exp.status or "PENDING",
             }
             for label, name in zip(input_labels, input_names):
@@ -276,3 +277,22 @@ def _num(v) -> Optional[float]:
         return None if math.isnan(f) else f
     except (TypeError, ValueError):
         return None
+
+
+def _case_id(exp) -> str:
+    """The dataset's per-row case identifier.
+
+    Prefers the model's own ``case_id`` (byte-identical for External
+    Aerodynamics, including WBP extras). Studies that don't declare the
+    legacy ``aoa``/``velocity`` slots (e.g. Internal Flow, built via the
+    generic Phase-4 parameter path) can't form that airfoil-shaped id, so we
+    fall back to a filesystem-safe id derived from the study's *own*
+    parameters — metadata-driven, never a template branch.
+    """
+    try:
+        return exp.case_id
+    except KeyError:
+        params = exp.parameters_dict()
+        base = f"r{exp.row:03d}_" + "_".join(
+            f"{name}{val:g}" for name, val in sorted(params.items()))
+        return re.sub(r"[^A-Za-z0-9._\-]+", "-", base)

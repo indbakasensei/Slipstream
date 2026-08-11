@@ -382,6 +382,141 @@ preserved.
 Design tokens: `HEADER_TOGGLE_SIZE` (28), QSS role `[headerToggle="true"]`
 (compact ghost button, accent-tinted while active).
 
+## 8g. Responsive Workspace Hardening (Stage 6)
+
+Stage 6 is the *stress* layer: every responsive rule from Stage 5 is verified
+against a real matrix of window sizes and user sequences, and the layout's
+behaviour at the extremes (narrow, short, narrow+short, many docks, 64-row
+queues) is locked by an explicit test contract. It adds **no new chrome** —
+it hardens the existing allocation rules so nothing clips, crushes, or
+auto-hides at any reachable size.
+
+### Responsive rules
+
+There are **no aggressive automatic breakpoints and no resize-listener
+reflow.** The window's behaviour is a small set of floors plus Qt's own layout
+minimums:
+
+- Every region has a floor: `MIN_SIDEBAR_WIDTH`, `MIN_CENTER_WIDTH`
+  (the center workspace is asserted **≥ 300 px** at every matrix cell),
+  `MIN_QUEUE_WIDTH`, `MIN_PANEL_WIDTH`, `MIN_DOCK_WIDTH`, `MIN_PLOT_HEIGHT`,
+  `MIN_CONTROL_HEIGHT`.
+- The main splitter is **non-collapsible** — no region can be squeezed to a
+  sliver by resizing.
+- Widgets render **at their size hint** rather than being compressed; where
+  the hint exceeds the space, the content **scrolls** instead of clipping.
+- **Visibility changes only through the user's explicit actions** (Queue
+  toggle, Focus Mode, View-menu dock toggles). Window resizing never hides a
+  panel.
+
+### Primary workspace protection
+
+The primary engineering task stays visually dominant at every size:
+
+- The center workspace (Dashboard / Charts / Images / Results) holds a
+  **flexible stretch factor** in the main splitter and a hard floor, so it
+  reclaims every pixel the Queue or a dock frees.
+- Collapsing the Queue gives its full width to the center — there is no
+  "wide" vs "narrow" mode, just the user's chosen allocation.
+- Focus Mode (`8f`) gives the current primary workspace the **entire
+  window** (Sidebar, Queue, and every dock hidden) and restores the exact
+  prior layout on exit.
+- Queue run controls (Run All / Run Selected / Stop) are asserted to **never
+  be crushed below their size hint** while the Queue is visible — the most
+  safety-critical controls are also the most protected.
+
+### Dock sizing philosophy
+
+Docks are auxiliary and opt-in:
+
+- Parameters, Monitor, and Console are **hidden by default**; opening one
+  (View menu, or the dashboard quick actions) docks it on the right with a
+  minimum readable width (`MIN_DOCK_WIDTH`).
+- Two docks in the same area **split the available width evenly**; a single
+  dock takes the full dock area. Both are captured in the visual samples.
+- A dock the user opened **stays visible through resizing** — the matrix
+  asserts positive, within-window geometry for every opened dock after a
+  resize, and no auto-hide.
+
+### Scrolling rules
+
+Only naturally-long content scrolls; the page never clips:
+
+- **Dashboard / Parameters** → `QScrollArea` (a short window scrolls).
+- **Queue** → native table scrolling; the table genuinely overflows and
+  scrolls at 64 rows on a 1080 px window (verified in the T7 large-queue
+  sample).
+- **Log / Console** → `QPlainTextEdit`.
+- **Charts / Images** → the plot and viewer scale with the container; their
+  toolbars are grouped strips that fit constrained widths (verified at
+  1000 px).
+
+### Window-size behaviour
+
+Qt clamps any `resize()` below the layout's usable minimum rather than
+rendering a broken layout, so the *reachable* sizes are what matter:
+
+- With the default bottom group (Log / Statistics / Console) visible, the
+  window clamps at **≈ 773 px** tall (menubar + toolbar + center + bottom
+  group + status bar).
+- A user on a short screen closes the bottom group (the same View-menu
+  toggle as Stage 5); the window then reaches **≈ 555 px**.
+- The T6 visual samples cover the honest reachable extremes: normal
+  **1480×900**, narrow **1000×700**, short **1400×520** (bottom group
+  closed), and narrow+short **1000×520** (bottom group closed).
+
+### Stress-test matrix (T4)
+
+Thirteen cells (A–M) exercise every allocation state against real sizes —
+`tests/test_stage6_matrix.py`:
+
+| Cell | Size | State exercised |
+|---|---|---|
+| A | 1920×1080 | large desktop |
+| B | 1480×900 | normal desktop |
+| C | 1000×700 | narrow desktop |
+| D | 1400×520 | short (request clamps to the window minimum with the bottom group visible) |
+| E | 1000×520 | narrow + short (same clamp) |
+| F | 1920×1080 | large with full Queue |
+| G | 1920×1080 | + Parameters dock |
+| H | 1920×1080 | + Monitor dock |
+| I | 1920×1080 | + Parameters, Monitor, Console |
+| J | 1480×900 | Focus Mode |
+| K | 1480×900 → 1000×700 | Focus Mode while resizing |
+| L | 1480×900 → 1000×700 | Queue collapsed while resizing |
+| M | 1480×900 → 1000×700 | Queue collapse → restore then resize |
+
+Every cell is asserted for: positive within-window geometry, center ≥ 300 px,
+no unintended auto-hide, queue controls not crushed, scroll areas present,
+and open docks staying visible.
+
+### User-interaction matrix (T5)
+
+One full realistic sequence drives the window through every feature the user
+actually touches — `test_user_interaction_sequence`: open project → run mock
+batch to completion → collapse Queue → Charts → enter Focus → resize while
+focused → exit Focus (exact Stage 5 restoration, Queue still collapsed) →
+restore Queue → open Parameters → select a row → resize with the dock open →
+open Monitor and Console → Images → back to Dashboard. The invariants above
+are asserted at every step.
+
+### Regression guarantees
+
+- The Stage 5 contract suite (`tests/test_adaptive_workspace.py`) is **run
+  unchanged** and still passes — Stage 6 never weakens a Stage 5 assertion.
+- Stage 5 restoration is re-verified inside the Stage 6 matrix: Focus exit
+  restores the exact prior layout, Queue collapse/restore preserves width,
+  dock visibility survives resizing.
+- The T7 sample-data builders (`_screens/stage6_samples.py`) are locked by
+  `tests/test_stage6_samples.py`: each sample must load through the real
+  GUI dataset path with its advertised row count, status mix, WBP columns,
+  and template — including Internal Flow, which exercises the metadata-driven
+  `CaseID` fallback and guarantees the same UI renders both templates.
+- The full suite runs offscreen (`QT_QPA_PLATFORM=offscreen`); the sixteen
+  Stage 6 screenshots in `_screens/stage6_*.png` are regenerated from the
+  live path by `_screens/capture_stage6.py` and are the visual record of
+  every matrix cell and data variety.
+
 ## 9. Motion & performance
 
 Motion is subtle and cheap: hover/selection/focus state changes and

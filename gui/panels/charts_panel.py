@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (QComboBox, QFileDialog, QFrame, QHBoxLayout,
 from gui import theme
 from gui.state import AppState
 from gui.widgets import make_icon
+from gui.widgets.flow_layout import FlowLayout
 
 Y_CHOICES = ["CL", "CD", "L/D", "Lift_N", "Drag_N", "Iterations"]
 
@@ -57,27 +58,35 @@ class ChartsPanel(QWidget):
         self.state = state
 
         # ---- Toolbar: axis selectors + presets + export ----------------- #
+        # A FlowLayout (Stage 6) so the toolbar reflows onto a second line
+        # instead of crushing the combos when the workspace is narrow.
         toolbar = QWidget()
         toolbar.setProperty("chartToolbar", True)
-        tb = QHBoxLayout(toolbar)
+        tb = FlowLayout()
         tb.setContentsMargins(theme.SPACE_SM, theme.SPACE_SM,
                               theme.SPACE_SM, theme.SPACE_SM)
         tb.setSpacing(theme.SPACE_SM)
+        toolbar.setLayout(tb)
 
+        # Axis selectors stay one non-splittable group: a "Color:" label alone
+        # on a wrapped line reads as broken, so each label+combo must stay
+        # together as a unit.
+        selector_group = QWidget()
+        sel = QHBoxLayout(selector_group)
+        sel.setContentsMargins(0, 0, 0, 0)
+        sel.setSpacing(theme.SPACE_XS)
         for lbl_text in ("X", "Y", "Color"):
             lbl = QLabel(f"{lbl_text}:")
             lbl.setProperty("caption", True)
-            tb.addWidget(lbl)
-
+            sel.addWidget(lbl)
         self.x_box = QComboBox()
-        tb.addWidget(self.x_box)
+        sel.addWidget(self.x_box)
         self.y_box = QComboBox()
         self.y_box.addItems(Y_CHOICES)
-        tb.addWidget(self.y_box)
+        sel.addWidget(self.y_box)
         self.c_box = QComboBox()
-        tb.addWidget(self.c_box)
-
-        tb.addSpacing(theme.SPACE_MD)
+        sel.addWidget(self.c_box)
+        tb.addWidget(selector_group)
 
         # Preset buttons reference the study's own input columns (from
         # metadata) — never literal parameter names — so they read naturally
@@ -93,13 +102,20 @@ class ChartsPanel(QWidget):
             b.clicked.connect(lambda _, p=preset: self._preset(*p))
             tb.addWidget(b)
 
-        tb.addStretch(1)
-
+        # Export PNG rides in an expanding container: it absorbs the leftover
+        # width on whatever line it lands, keeping the button right-aligned
+        # while the rest of the toolbar wraps around it at narrow widths.
+        export_host = QWidget()
+        export_host.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        ex = QHBoxLayout(export_host)
+        ex.setContentsMargins(0, 0, 0, 0)
+        ex.addStretch(1)
         png = QPushButton("Export PNG…")
         png.setIcon(make_icon("export", theme.TEXT_DIM))
         png.setIconSize(QSize(theme.TOOLBAR_ICON_SIZE, theme.TOOLBAR_ICON_SIZE))
         png.clicked.connect(self._export)
-        tb.addWidget(png)
+        ex.addWidget(png)
+        tb.addWidget(export_host)
 
         # ---- Chart (dominant) ------------------------------------------- #
         self.plot = pg.PlotWidget()

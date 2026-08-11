@@ -68,6 +68,38 @@ log = logging.getLogger("gui.main")
 BASE_TITLE = f"Slipstream — CFD Study Manager  v{cfdauto.__version__}"
 
 
+class _RightDock(QDockWidget):
+    """Right-area dock that requests a readable width the first time it shows.
+
+    ``visibilityChanged`` is unreliable for tabified docks — Qt never emits
+    ``True`` when a hidden tab is raised — so first-show is detected with
+    ``showEvent``, which *is* delivered when the tab becomes visible. The
+    callback fires exactly once.
+    """
+
+    def __init__(self, title: str, parent, first_show_width):
+        super().__init__(title, parent)
+        self._first_show_width = first_show_width
+        self._sized_once = False
+
+    def showEvent(self, event) -> None:  # noqa: D401
+        super().showEvent(event)
+        if self._sized_once:
+            return
+        self._sized_once = True
+        target = self._first_show_width()
+        if not target:
+            return
+        # A temporary minimumWidth nudges the dock layout to allocate the
+        # readable width; it's released on the next tick so the user can still
+        # drag the dock narrower afterwards (no permanent minimum).
+        self.setMinimumWidth(target)
+
+        def release():
+            self.setMinimumWidth(0)
+        QTimer.singleShot(0, release)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, config_path: Optional[str] = None):
         super().__init__()
@@ -270,8 +302,8 @@ class MainWindow(QMainWindow):
     # Log/Statistics/Console tab group (visible by default, as before).
     # ------------------------------------------------------------------ #
     def _dock(self, title: str, widget, area, tab_with: str | None = None,
-             start_hidden: bool = False):
-        d = QDockWidget(title, self)
+             start_hidden: bool = False, dock_cls=QDockWidget):
+        d = dock_cls(title, self)
         d.setObjectName(title)
         d.setWidget(widget)
         self.addDockWidget(area, d)
@@ -283,10 +315,16 @@ class MainWindow(QMainWindow):
         return d
 
     def _make_docks(self) -> None:
+        # First-show width for the right-area docks (Stage 6, P4): Qt opens a
+        # fresh dock at ~300px, which clips the Monitor pipeline and the
+        # Parameters form (both need ~490-575px). _RightDock asks for a
+        # window-proportional width on its first showEvent; the user can still
+        # drag the dock narrower afterwards.
+        right = lambda t, p: _RightDock(t, p, self._size_dock_on_first_show)
         self._dock("Monitor", self.monitor, Qt.RightDockWidgetArea,
-                  start_hidden=True)
+                  start_hidden=True, dock_cls=right)
         self._dock("Parameters", self.params, Qt.RightDockWidgetArea,
-                  tab_with="Monitor", start_hidden=True)
+                  tab_with="Monitor", start_hidden=True, dock_cls=right)
 
         lg = self._dock("Log", self.log_panel, Qt.BottomDockWidgetArea)
         self._dock("Statistics", self.stats, Qt.BottomDockWidgetArea,
@@ -297,6 +335,12 @@ class MainWindow(QMainWindow):
 
         self.resizeDocks([lg], [190], Qt.Vertical)
         self._default_layout = self.saveState()
+
+    def _size_dock_on_first_show(self) -> int:
+        """Target width for a right-area dock's first show (window-proportional,
+        within a readable range; 0 = leave Qt's default)."""
+        return max(theme.MIN_DOCK_WIDTH,
+                   min(int(self.width() * 0.33), theme.MAX_DOCK_WIDTH))
 
     def _make_menus_toolbar(self) -> None:
         # File

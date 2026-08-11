@@ -127,6 +127,12 @@ TOOLBAR_ICON_SIZE = 18    # standard icon canvas for toolbar / nav
 HEADER_TOGGLE_SIZE = 28   # compact Queue / Focus toggle button in the header
 
 # ===========================================================================
+# RESPONSIVE WORKSPACE — first-show dock sizing (Stage 6; additive)
+# ===========================================================================
+MIN_DOCK_WIDTH = 360      # a dock's first-shown width never drops below this
+MAX_DOCK_WIDTH = 560      # nor exceeds this (content stays readable)
+
+# ===========================================================================
 # DASHBOARD REVOLUTION — hero / KPI / activity / quick-action tokens (v2.2;
 # additive; no existing token was changed)
 # ===========================================================================

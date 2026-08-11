@@ -25,8 +25,8 @@ from datetime import datetime
 from typing import Optional
 
 import pyqtgraph as pg
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLayout, QListWidget,
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QListWidget,
                                QProgressBar, QPushButton, QScrollArea,
                                QSizePolicy, QStackedLayout, QVBoxLayout,
                                QWidget)
@@ -41,84 +41,10 @@ from gui.widgets import (ActivityFeed, EmptyState, HeroHeader, KpiCard,
                          StudySummaryPanel)
 
 
-class _FlowLayout(QLayout):
-    """A minimal flow layout: children wrap onto new rows when the available
-    width runs out, so the KPI row (and dashboard column pairs) reflow
-    naturally from wide to narrow windows with no clipping. Classic Qt recipe,
-    trimmed to what this screen needs."""
-
-    def __init__(self, parent=None, margin: int = 0, hspacing: int = -1,
-                 vspacing: int = -1, spacing: int = -1):
-        super().__init__(parent)
-        self._items = []
-        self._hspacing = hspacing
-        self._vspacing = vspacing
-        if spacing >= 0:
-            self.setSpacing(spacing)
-        self.setContentsMargins(margin, margin, margin, margin)
-
-    # ------------------------------------------------------------------ #
-    def addItem(self, item):  # noqa: D401
-        self._items.append(item)
-
-    def count(self) -> int:
-        return len(self._items)
-
-    def itemAt(self, index):
-        return self._items[index] if 0 <= index < len(self._items) else None
-
-    def takeAt(self, index):
-        if 0 <= index < len(self._items):
-            return self._items.pop(index)
-        return None
-
-    def expandingDirections(self):
-        return Qt.Orientations(Qt.Orientation(0))
-
-    def hasHeightForWidth(self) -> bool:
-        return True
-
-    def heightForWidth(self, width: int) -> int:
-        return self._do(QRect(0, 0, width, 0), True)
-
-    def setGeometry(self, rect) -> None:
-        super().setGeometry(rect)
-        self._do(rect, False)
-
-    def sizeHint(self) -> QSize:
-        return self.minimumSize()
-
-    def minimumSize(self) -> QSize:
-        size = QSize()
-        for item in self._items:
-            size = size.expandedTo(item.minimumSize())
-        m = self.contentsMargins()
-        size += QSize(m.left() + m.right(), m.top() + m.bottom())
-        return size
-
-    def _hsp(self) -> int:
-        return self._hspacing if self._hspacing >= 0 else self.spacing()
-
-    def _vsp(self) -> int:
-        return self._vspacing if self._vspacing >= 0 else self.spacing()
-
-    def _do(self, rect: QRect, test_only: bool) -> int:
-        m = self.contentsMargins()
-        eff = QRect(rect.x() + m.left(), rect.y() + m.top(),
-                    rect.width() - m.left() - m.right(),
-                    rect.height() - m.top() - m.bottom())
-        x, y, line_height = eff.x(), eff.y(), 0
-        for item in self._items:
-            hint = item.sizeHint()
-            if x + hint.width() > eff.right() + 1 and line_height > 0:
-                x = eff.x()
-                y = y + line_height + self._vsp()
-                line_height = 0
-            if not test_only:
-                item.setGeometry(QRect(QPoint(x, y), hint))
-            x += hint.width() + self._hsp()
-            line_height = max(line_height, hint.height())
-        return (y + line_height - eff.y() + m.top() + m.bottom())
+# The dashboard's flow layout now lives in gui.widgets.flow_layout (Stage 6)
+# so the Queue's filter pills and the Charts toolbar share the same wrapping
+# layout. `_FlowLayout` remains importable from here for backward compatibility.
+from gui.widgets.flow_layout import FlowLayout as _FlowLayout
 
 
 def _section(title: str, caption: str = ""):

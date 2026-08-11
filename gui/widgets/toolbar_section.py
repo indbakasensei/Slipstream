@@ -12,14 +12,23 @@ from typing import Optional
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QWidget
 
 from gui import theme
+from gui.widgets.flow_layout import FlowLayout
 
 
 class ToolbarSection(QFrame):
-    def __init__(self, title: Optional[str] = None, parent=None):
+    def __init__(self, title: Optional[str] = None, parent=None,
+                 wrap: bool = False):
         super().__init__(parent)
         self.setProperty("toolGroup", True)
 
-        lay = QHBoxLayout(self)
+        # `wrap` installs a FlowLayout so the section reflows onto extra rows
+        # (growing taller) instead of crushing its children when the available
+        # width runs out — used by the Queue's Run row (Stage 6).
+        if wrap:
+            lay = FlowLayout()
+            self.setLayout(lay)
+        else:
+            lay = QHBoxLayout(self)
         lay.setContentsMargins(theme.SPACE_XS, theme.SPACE_XS,
                                theme.SPACE_XS, theme.SPACE_XS)
         lay.setSpacing(theme.SPACE_XS)

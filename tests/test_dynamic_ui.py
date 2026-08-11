@@ -189,3 +189,51 @@ def test_state_primary_secondary_inputs_are_metadata():
     assert ext.secondary_input().display_name == "Velocity"
     intf = _state_for(INTERNAL_FLOW)
     assert intf.primary_input().name == "inlet_velocity"
+
+
+# --------------------------------------------------------------------- #
+# Full-project load — the workbook→dataset path must stay template-agnostic
+# --------------------------------------------------------------------- #
+_INTERNAL_CONFIG_TPL = """
+fluent:
+  aoa_method: "geometry"
+  wall_zones: ["wing"]
+  reference: {{density: 1.225, area: 1.0}}
+excel:
+  file: "{xlsx}"
+runtime:
+  work_dir: "{work}"
+  mock: true
+  template: "internal-flow"
+"""
+
+
+def test_internal_flow_project_loads_full_workbook_path(tmp_path):
+    """Regression: loading a real internal-flow project used to crash with
+    KeyError 'aoa' — cfdauto's ``Experiment.case_id`` is airfoil-shaped, but
+    the GUI dataset must still form a case id for studies that don't declare
+    the legacy aoa/velocity slots (metadata-driven, never a template branch)."""
+    from cfdauto.config import load_config
+    from openpyxl import load_workbook
+    from tools.make_experiment_template import build_template
+
+    xlsx = tmp_path / "internal.xlsx"
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(_INTERNAL_CONFIG_TPL.format(
+        xlsx=xlsx.as_posix(), work=(tmp_path / "runs").as_posix()))
+    ed = ExperimentDefinition.for_config(load_config(cfg))
+    build_template(xlsx, ed)                       # Inlet Velocity × Pipe Diameter
+
+    wb = load_workbook(xlsx)
+    ws = wb["Experiments"]
+    status_col = next(c.column for c in ws[1] if c.value == "Status")
+    for r in range(2, ws.max_row + 1):
+        ws.cell(row=r, column=status_col, value="DONE")
+    wb.save(xlsx)
+
+    st = AppState()
+    st.load_project(str(cfg))                      # the path that crashed
+    assert len(st.df) == 8
+    assert "Inlet Velocity" in st.df.columns       # metadata-driven inputs
+    assert all(st.df["CaseID"].str.startswith("r00"))  # generic ids formed
+    assert st.df["Status"].eq("DONE").all()

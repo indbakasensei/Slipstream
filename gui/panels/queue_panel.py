@@ -24,6 +24,7 @@ from gui import param_render, theme
 from gui.state import AppState
 from gui.widgets import (SectionHeader, StatusBadgeDelegate, ToolbarSection,
                          make_icon)
+from gui.widgets.flow_layout import FlowLayout
 
 
 def _item(text: str, sort_value=None) -> QTableWidgetItem:
@@ -47,7 +48,7 @@ class QueuePanel(QWidget):
         self.state = state
         self._active_filter: str = "ALL"
 
-        # ---- Header row: section title + status summary + run controls -- #
+        # ---- Header row: section title + status summary ----------------- #
         header = QHBoxLayout()
         header.setSpacing(theme.SPACE_MD)
         header.addWidget(SectionHeader("Queue", icon_name="queue"), 1)
@@ -57,8 +58,12 @@ class QueuePanel(QWidget):
         self._summary_lbl.setProperty("hint", True)
         header.addWidget(self._summary_lbl)
 
-        # Run controls — preserved exactly as before
-        run_grp = ToolbarSection("Run")
+        # ---- Run controls — own wrapping row (Stage 6, P1) --------------- #
+        # The three controls need ~345px together; a queue header can't afford
+        # that once the panel narrows. On their own full-width row they stay on
+        # one readable line at the default width and wrap to a second line
+        # (growing the panel taller) instead of crushing below sizeHint.
+        run_grp = ToolbarSection("Run", wrap=True)
         self.run_all = QPushButton("Run All")
         self.run_all.setProperty("accent", True)
         self.run_all.setIcon(make_icon("run", theme.ACCENT_TEXT))
@@ -73,13 +78,11 @@ class QueuePanel(QWidget):
         run_grp.add(self.run_all)
         run_grp.add(self.run_sel)
         run_grp.add(self.stop_btn)
-        header.addWidget(run_grp)
 
-        # ---- Filter row ------------------------------------------------ #
+        # ---- Filter row — reflows instead of crushing (Stage 6, P2) ------ #
         self._filter_btns: dict[str, QPushButton] = {}
-        filter_row = QHBoxLayout()
+        filter_row = FlowLayout()
         filter_row.setSpacing(theme.SPACE_XS)
-        filter_row.setContentsMargins(0, 0, 0, 0)
         for label in ("ALL", "PENDING", "RUNNING", "DONE", "FAILED"):
             btn = QPushButton(label)
             btn.setProperty("queueFilter", True)
@@ -87,7 +90,6 @@ class QueuePanel(QWidget):
             btn.clicked.connect(lambda _, l=label: self._set_filter(l))
             self._filter_btns[label] = btn
             filter_row.addWidget(btn)
-        filter_row.addStretch(1)
         self.retry_chk = QCheckBox("Retry FAILED")
         filter_row.addWidget(self.retry_chk)
         self.max_spin = QSpinBox()
@@ -126,6 +128,7 @@ class QueuePanel(QWidget):
                                theme.PANEL_MARGIN, theme.PANEL_MARGIN)
         lay.setSpacing(theme.SPACE_SM)
         lay.addLayout(header)
+        lay.addWidget(run_grp)
         lay.addLayout(filter_row)
         lay.addWidget(self.table, 1)
         lay.addWidget(self._empty)
