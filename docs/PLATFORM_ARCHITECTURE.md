@@ -1539,3 +1539,218 @@ migrated** — writing generic columns to a workbook is Phase 8C.
 
 The Excel output system, ledger schema, analytics, orchestrator event
 payloads, and the `gui/` are **untouched** by Phase 8B.
+
+## 19. Phase 8C — generic Excel / StudyIO boundary
+
+### 19.1 The goal
+
+Phase 8A made the *Experiment* generic; Phase 8B made the *Result* generic.
+Phase 8C makes the **workbook boundary** generic: `ExcelManager` no longer
+contains External-Aerodynamics-shaped output assumptions (CL/CD/Lift_N/Drag_N
+hardcoded as its own). The desired direction is now realized end-to-end:
+
+```
+SimulationTemplate
+   │  input parameter metadata        output metric metadata
+   ▼                                        ▼
+ExperimentDefinition               Template.output_columns()
+   │                                        ▼
+StudyIO ──────────────────────►  StudyIO.output_metric_columns()
+   │                                        ▼
+ExcelManager ──► workbook ◄────── ExcelManager (write_result / read_row_metrics)
+```
+
+The template owns the domain metadata; `StudyIO` resolves it against the
+project's `ColumnMap`; `ExcelManager` only consumes the resolved headers —
+it never branches on which template it is writing.
+
+### 19.2 StudyIO boundary (one mapping layer, not two)
+
+The Phase 5 input-side resolution (`StudyIO.input_column_header`) already made
+the input columns template-driven. Phase 8C adds the **output side to the same
+object**, so there is exactly one place that knows the template↔spreadsheet
+correspondence:
+
+- `StudyIO.input_column_headers()` — ordered study input headers (ColumnMap
+  override honoured, else the template's declared `column_name`).
+- `StudyIO.output_metric_columns()` — ordered `(metric_name, header)` pairs
+  resolved from `Template.output_columns()` against the project's `ColumnMap`
+  (Phase 8B contract, not duplicated). The one translation is
+  `l_over_d → ColumnMap.cl_cd` (metric name ≠ ColumnMap attribute name).
+
+No parallel abstraction was added; `ExcelManager` keeps its existing
+relationship with `StudyIO` (built in `__init__`, resolved via
+`StudyIO.for_config` / `ExcelManager.for_config` when the project passes a
+full `Config`).
+
+### 19.3 Generic input-column contract
+
+Already template-driven since Phase 5; Phase 8C *proves* it across templates
+through the single mechanism (no second input-column system):
+
+- **External Aero** — `aoa → AOA_deg`, `velocity → Velocity_m_s`.
+- **Internal Flow** — `inlet_velocity → InletVelocity_m_s`,
+  `fluid_density → FluidDensity_kg_m3`, `fluid_viscosity → FluidViscosity_Pa_s`,
+  `pipe_diameter → PipeDiameter_m`, `pipe_length → PipeLength_m`.
+- **Canary** — `tank_radius → TankRadius_m`, `inlet_temp → InletTemp_K`.
+
+A user `ColumnMap` rename (e.g. `aoa="Alpha_deg"`) flows through the same
+lookup unchanged.
+
+### 19.4 Generic output-column contract
+
+`StudyIO.output_metric_columns()` yields, for each template:
+
+- **External Aero** — `cl→CL`, `cd→CD`, `l_over_d→CL/CD`, `lift→Lift_N`,
+  `drag→Drag_N` (reproduces the legacy `ColumnMap` headers — a declaration,
+  not a special case).
+- **Internal Flow** — `pressure_drop→PressureDrop_Pa`,
+  `reynolds_number→ReynoldsNumber`, `friction_factor→FrictionFactor`.
+- **Canary** — `heat_rate→HeatRate_W`, `efficiency→Efficiency`,
+  `vapor_fraction→Vapor Fraction`.
+
+`ExcelManager._output_headers()` builds the workbook schema from that list:
+Status → the template's metric columns → the universal bookkeeping columns →
+any supported legacy derived column. For External Aero this reproduces
+`ColumnMap.output_names()` **exactly**, preserving the historical column order
+(`CL, CD, CL/CD, Lift_N, Drag_N, FL/FD, Iterations, … CaseDir`). Ordering is
+deterministic and follows the template (`supported_metrics` order) — never an
+alphabetical sort.
+
+### 19.5 workbook → template mapping
+
+- `Config.template_id()` (Capability 3) selects the project template;
+  `StudyIO.for_config(cfg)` / `ExcelManager.for_config(cfg)` build the
+  template-aware manager from it.
+- An empty `runtime.template` keeps the registry default (External
+  Aerodynamics), so every pre-Capability-3 config loads unchanged.
+- A test-only third template (the canary) is **not** registered, so it is
+  injected through the `ExcelManager(cfg.excel, study_io=…)` seam — the same
+  seam every caller uses to provide a project-resolved `StudyIO`.
+
+### 19.6 ExcelManager read path
+
+- `read_row_metrics(row)` (new, generic) reads the template's declared metric
+  columns into a `MetricValue` dict keyed by *template metric name* — the
+  mirror image of `write_result`'s metric loop. Units come from the attached
+  template's `MetricDefinition`. Blank cells read `None`; unreadable cells are
+  logged and treated as absent (never a crash).
+- `read_row_outputs(row)` (legacy) is **preserved unchanged** — the lowercase
+  `{cl, cd, cl_cd, lift, drag, iterations, converged, error, duration,
+  case_dir}` dict that the GUI, analytics, and External Aero consumers depend
+  on. No public return type changed.
+
+### 19.7 CaseResult → workbook mapping (generic write path)
+
+`write_result(exp, res, status)` is a single generic writer (no
+`write_external_aero_results` / `write_internal_flow_results`):
+
+1. Status cell.
+2. Template metric columns — `_metric_cell` honours the stored metric first,
+   then derived/legacy accessors (`l_over_d→cl_over_cd`, `lift→lift_n`,
+   `drag→drag_n`), with per-metric display formats.
+3. Universal run bookkeeping (`iterations`, `converged` YES/NO, truncated
+   `error`, `started`/`finished`, `duration`, `case_dir`) — written for every
+   template.
+4. Legacy derived columns (`FL/FD`) — created/written **only when the template
+   declares the metrics it derives from** (`lift`+`drag`), a data-driven rule
+   rather than a template-id branch.
+
+For External Aero this is cell-for-cell identical to the legacy writer
+(CL/CD/CL-CD/Lift_N/Drag_N/FL/FD + bookkeeping in the same columns).
+
+### 19.8 Legacy External Aero compatibility (golden)
+
+- Historical workbooks keep their `CL/CD/Lift_N/Drag_N` headers and column
+  order — `_output_headers()` reproduces the legacy layout exactly, so no
+  existing column is renamed, reordered, or fabricated.
+- Historical result values round-trip to full precision; the real 1000-row
+  project schedule (`experiments.xlsx`, real Fluent results) was read,
+  written, and reloaded with **zero metric differences** (Live Test A).
+- Historical result JSON and template-less `CaseResult` behavior are unchanged
+  from Phase 8B.
+
+### 19.9 Internal Flow workbook support
+
+Internal Flow workbooks use the same generic mechanism:
+
+- input columns `InletVelocity_m_s … PipeLength_m`;
+- output columns `PressureDrop_Pa`, `ReynoldsNumber`, `FrictionFactor`
+  (units from the template — `Pa` for pressure drop);
+- **no** `CL`/`CD`/`Lift`/`Drag`/`FL/FD` columns are required or fabricated.
+
+A deterministic fixture workbook (analytical values from
+`solve_internal_flow` — **not** CFD) round-trips read → write → reload with
+metric values, units, case identity, and bookkeeping preserved (Live Test B).
+
+### 19.10 Third-template canary
+
+The Phase 8B test-only canary proves the Excel layer is domain-neutral: an
+arbitrary template with arbitrary input columns (`TankRadius_m`,
+`InletTemp_K`) and arbitrary metric columns (`HeatRate_W`, `Efficiency`,
+`Vapor Fraction`) reads and writes through the real `ExcelManager`/`StudyIO`
+path with no AOA/Velocity/CL/CD/Lift/Drag anywhere in the representation.
+
+### 19.11 Round-trip behavior
+
+`template → workbook → read → ExperimentDefinition → Experiment/CaseResult →
+write → workbook` preserves:
+
+- **Inputs** — parameter names, values, and (where declared) units; case
+  identity (`case_id`); workbench parameters (WBP: columns survive the write,
+  carried as `source="wbp"` parameters).
+- **Outputs** — metric names, values, units; status + bookkeeping.
+
+The round-trip does not silently drop fields; the workbook is the run database,
+so every value the writer writes is immediately readable back through the same
+metadata path.
+
+### 19.12 Missing / extra / blank / malformed / duplicate columns
+
+- Missing required input column → loud `ConfigError` naming the column and the
+  sheet (both External Aero and Internal Flow).
+- Missing optional output columns → auto-created at the right-hand edge on
+  first open (headers only; the user's existing layout is never reordered).
+- Unknown extra columns → preserved untouched across reads and writes.
+- Blank output cells → read as `None` (unit still from the template).
+- Malformed numeric output → logged and treated as absent (never a crash);
+  malformed required input → row skipped with a warning (existing contract).
+- Duplicate output header → the last occurrence wins for both read and write
+  (existing `_col` rule, now pinned deterministically).
+
+### 19.13 Live validation (real Excel/StudyIO integration)
+
+Phase 8C validated with real files through the actual application path — not
+in-memory mocks, not mock CFD:
+
+- **Live Test A — External Aero**: a *copy* of the real `experiments.xlsx`
+  (1000 rows, 25 real Fluent `DONE` cases) was read into the generic
+  representation, written back through the generic writer, and reloaded.
+  Template `external-aerodynamics`, output metrics as declared, round-trip
+  metric/status/timestamp diffs **NONE**. The original workbook was never
+  modified.
+- **Live Test B — Internal Flow**: a deterministic fixture workbook was read,
+  written, and reloaded through the same generic path. `PressureDrop_Pa`
+  (unit `Pa`), `ReynoldsNumber`, `FrictionFactor` round-tripped with no diffs
+  and no aero columns fabricated.
+
+### 19.14 Bugs discovered (pre-existing, out of scope)
+
+While reading the Excel consumers, a latent pre-existing defect was found but
+**not fixed** (its file is outside the Phase 8C scope firewall):
+
+- `cfdauto/execution/external_aerodynamics.py` `is_launch_failure` reads
+  `row.get("Error")` (uppercase) but `ExcelManager.read_row_outputs` returns
+  the lowercase key `"error"` — so launch-failure detection silently never
+  triggers. Fixing it belongs to a phase that owns `execution/`.
+
+### 19.15 What Phase 8C deliberately leaves for later
+
+- **8D** generic results & analytics.
+- **8E** generic storage / ledger.
+- **8F** generic events + linter.
+- **8G** full registration seam / plugin discovery.
+- **8H** Internal Flow end-to-end through every downstream subsystem.
+
+The GUI, ledger, analytics, orchestrator, plugin discovery, and NACA0012/CFD
+work are **untouched** by Phase 8C.

@@ -26,6 +26,13 @@ name on ``config.ColumnMap`` for the two built-in inputs
 ``ColumnMap.velocity`` → ``"Velocity_m_s"``). Column resolution therefore
 honours any user ``ColumnMap`` override while iterating the template — a
 renamed column keeps working, and no header is hardcoded.
+
+Phase 8C: the *output* side lives here too. :meth:`output_metric_columns`
+resolves a template's declared metrics to their spreadsheet headers (the
+legacy ``CL``/``CD``/``Lift_N``/``Drag_N`` map for External Aerodynamics,
+``PressureDrop_Pa``/``ReynoldsNumber``/``FrictionFactor`` for Internal Flow)
+— the same template-owns-metadata boundary the input columns use, so the
+Excel layer never branches on which template it is writing.
 """
 
 from __future__ import annotations
@@ -39,6 +46,11 @@ from .models import Experiment
 from .simulation_context import SimulationContext
 
 log = logging.getLogger(__name__)
+
+# ColumnMap attribute name for a template metric where it differs from the
+# metric name (metric ``l_over_d`` ↔ ColumnMap ``cl_cd``). Metrics without an
+# entry are looked up by their own name.
+_METRIC_TO_COLUMN_MAP_ATTR = {"l_over_d": "cl_cd"}
 
 
 class StudyIO:
@@ -85,6 +97,32 @@ class StudyIO:
         """Ordered actual spreadsheet headers for the study's inputs."""
         return [self.input_column_header(name)
                 for name in self.input_parameter_names()]
+
+    # ------------------------------------------------------------------ #
+    # Output column resolution (Phase 8C): template metric -> header
+    # ------------------------------------------------------------------ #
+    def output_metric_columns(self) -> List[Tuple[str, str]]:
+        """Ordered ``(metric_name, header)`` pairs for the template's declared
+        output metrics — the generic output-column contract at the workbook
+        boundary (mirror image of :meth:`input_column_headers`).
+
+        Each header is the project's ``ColumnMap`` value when one exists for
+        the metric (honours user renames and the legacy ``CL``/``CD``/
+        ``Lift_N``/``Drag_N`` map), else the metric's declared
+        ``output_column``, else its display name. Order follows the template's
+        ``supported_metrics``. The template owns the metadata; this boundary
+        only resolves it — the Excel layer never branches on template id.
+        """
+        template = self.exp_def.template
+        if template is None:
+            from .platform import get_default_template  # lazy: no cycle
+            template = get_default_template()
+        out: List[Tuple[str, str]] = []
+        for metric_name, declared in template.output_columns():
+            attr = _METRIC_TO_COLUMN_MAP_ATTR.get(metric_name, metric_name)
+            header = getattr(self.column_map, attr, None) or declared
+            out.append((metric_name, header))
+        return out
 
     # ------------------------------------------------------------------ #
     # Import: raw cell values -> Experiment (byte-identical skip rules)
