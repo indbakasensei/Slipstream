@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional
 
 from .config import Config
 from .error_formatting import format_error
-from .events import EventBus
+from .events import EventBus, RuntimeStage
 from .excel_manager import ExcelManager
 from .exceptions import CaseError, ExcelWriteError, FrameworkError
 # Phase 7: execution is owned by the template's ExecutionStrategy; the
@@ -202,7 +202,9 @@ class Orchestrator:
             self._execution_result = ExecutionResult(
                 status=STATUS_NOTHING_TO_DO,
                 duration_s=round(time.monotonic() - _t_start, 3))
-            self.bus.emit("batch.finished", ok=0, failed=0, stopped=False)
+            # Phase 8F: early batch.finished also carries template_id.
+            self.bus.emit("batch.finished", ok=0, failed=0, stopped=False,
+                          template_id=self._template.id)
             return 0
         if max_cases > 0:
             todo = todo[:max_cases]
@@ -234,9 +236,15 @@ class Orchestrator:
                 log.warning("Ledger batch start failed (%s) — continuing "
                             "with Excel only.", exc)
                 self._batch_id = None
+        # Phase 8F: batch.started carries template_id for generic consumers.
         self.bus.emit("batch.started", total=len(todo),
-                      rows=[e.row for e in todo])
+                      rows=[e.row for e in todo],
+                      template_id=self._template.id)
         self.state.acquire_lock()
+        # Phase 8F QA: emit PREPARING stage event for the monitor pipeline.
+        self.bus.emit("stage", stage=RuntimeStage.PREPARING.value,
+                      state="done", row=0, case_id="batch",
+                      template_id=self._template.id)
         failures = 0
         stopped = False
         ran = 0
@@ -258,10 +266,30 @@ class Orchestrator:
                     break
                 log.info("--- Case %d/%d: row %d  (AOA=%g deg, V=%g m/s) ---",
                          i, len(todo), exp.row, exp.aoa_deg, exp.velocity)
+                # Phase 8F: generic parameters dict for template-driven consumers;
+                # legacy aoa/velocity fields preserved for backward compatibility.
+                _params = {name: pv.value
+                           for name, pv in exp.parameters.items()}
                 self.bus.emit("case.started", row=exp.row, case_id=exp.case_id,
-                              index=i, total=len(todo), aoa=exp.aoa_deg,
-                              velocity=exp.velocity, extra=dict(exp.extra_wb_params))
+                              index=i, total=len(todo),
+                              template_id=self._template.id,
+                              parameters=_params,
+                              aoa=exp.aoa_deg,
+                              velocity=exp.velocity,
+                              extra=dict(exp.extra_wb_params))
+                # Phase 8F QA: emit SOLVING stage for each case.
+                self.bus.emit("stage", stage=RuntimeStage.SOLVING.value,
+                              state="start", row=exp.row,
+                              case_id=exp.case_id,
+                              template_id=self._template.id)
                 ok = self._run_one(exp)
+                # Phase 8F QA: emit DONE or FAILED stage for each case.
+                final_stage = (RuntimeStage.DONE if ok
+                               else RuntimeStage.FAILED)
+                self.bus.emit("stage", stage=final_stage.value,
+                              state="done", row=exp.row,
+                              case_id=exp.case_id,
+                              template_id=self._template.id)
                 # _run_one recorded the error already; the strategy decides
                 # whether it was a recoverable launch/licence failure (a
                 # Fluent-specific concern owned by the strategy, not the loop).
@@ -311,7 +339,9 @@ class Orchestrator:
                 self.ledger.close()
             except Exception:
                 pass
-        self.bus.emit("batch.finished", ok=done, failed=failures, stopped=stopped)
+        # Phase 8F: batch.finished carries template_id for generic consumers.
+        self.bus.emit("batch.finished", ok=done, failed=failures, stopped=stopped,
+                      template_id=self._template.id)
         self._current_study_summary = self._finalize_study_summary([e.row for e in todo])
         # Phase 8E: persist the summary so it survives restarts and can be
         # loaded on the next project open without a new batch run.
@@ -482,8 +512,12 @@ class Orchestrator:
                                            "experiment": exp.to_json_dict(),
                                            **res.to_json_dict()})
         self._write_excel(exp, res, STATUS_DONE)
+        # Phase 8F: generic metrics dict from the template-attached result.
+        _metrics = res.metrics_dict() if res.template is not None else {}
         self.bus.emit("case.done", row=exp.row, case_id=exp.case_id,
-                      result=res.to_json_dict())
+                      result=res.to_json_dict(),
+                      metrics=_metrics,
+                      template_id=self._template.id)
         log.info("Row %d DONE: CL=%.5f CD=%.5f L/D=%.3f Lift=%.2fN Drag=%.2fN "
                  "(%d it, converged=%s)",
                  exp.row, res.cl or float("nan"), res.cd or float("nan"),

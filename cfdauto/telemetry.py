@@ -136,7 +136,13 @@ class TelemetryTap:
 
     def _emit_iteration(self, it: int, cl: float, cd: float) -> None:
         residuals = self._pending_residuals.pop(it, None)
-        payload = {"it": it, "max_it": self.max_it, "cl": cl, "cd": cd}
+        # Phase 8F: legacy fields preserved for backward compatibility;
+        # metrics_snapshot is the generic payload consumers should prefer.
+        payload = {
+            "it": it, "max_it": self.max_it,
+            "cl": cl, "cd": cd,
+            "metrics_snapshot": {"cl": cl, "cd": cd},
+        }
         if residuals:
             payload["residuals"] = {
                 "continuity": residuals[0],

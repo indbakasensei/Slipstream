@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel,
                                QListWidget, QProgressBar, QScrollArea,
                                QTabWidget, QVBoxLayout, QWidget)
 
-from cfdauto.events import Event
+from cfdauto.events import Event, MonitorMetric
 from cfdauto.platform import get_default_template
 from gui import theme
 from gui.widgets import PipelineWidget, StatusChip
@@ -90,11 +90,35 @@ def _block(title: str, accessory=None):
 
 
 class MonitorPanel(QWidget):
-    def __init__(self, context=None, parent=None):
+    def __init__(self, context=None, parent=None, monitor_metrics=None):
         super().__init__(parent)
-        template = context.template if context is not None else get_default_template()
-        cl_metric = template.metric("cl")
-        cd_metric = template.metric("cd")
+        # Phase 8F revision R1: consume MonitorMetric view model objects.
+        # Never import SimulationTemplate directly.
+        self._context = context
+        if monitor_metrics is not None:
+            self._monitor_metrics = list(monitor_metrics)
+        else:
+            # Fallback: build minimal MonitorMetric list from default template
+            # (for tests / standalone instantiation).
+            template = context.template if context is not None else get_default_template()
+            self._monitor_metrics = [
+                MonitorMetric(key="iterations", display_name="Iterations",
+                              unit="", monitor_priority=-20),
+                MonitorMetric(key="residual", display_name="Min residual",
+                              unit="", monitor_priority=-10),
+            ]
+            for md in template.supported_metrics:
+                pri = getattr(md, "monitor_priority", None)
+                if pri is None:
+                    pri = 100 + len(self._monitor_metrics)
+                self._monitor_metrics.append(MonitorMetric(
+                    key=md.name, display_name=md.display_name,
+                    unit=md.unit or "", monitor_priority=pri))
+            self._monitor_metrics.sort(key=lambda m: m.monitor_priority)
+        # Legacy names for the forces plot labels (still needed for the
+        # pyqtgraph legend).
+        cl_metric = next((m for m in self._monitor_metrics if m.key == "cl"), None)
+        cd_metric = next((m for m in self._monitor_metrics if m.key == "cd"), None)
         cl_name = cl_metric.display_name if cl_metric else "CL"
         cd_name = cd_metric.display_name if cd_metric else "CD"
 
@@ -185,8 +209,11 @@ class MonitorPanel(QWidget):
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
         self._metric_vals: Dict[str, QLabel] = {}
-        tiles = [("iterations", "Iterations"), ("residual", "Min residual"),
-                 ("cl", cl_name), ("cd", cd_name)]
+        # Phase 8F revision R1+R4: tiles come from MonitorMetric list,
+        # already sorted by monitor_priority.  First 4 (2 bookkeeping +
+        # 2 physics) populate the tile grid.
+        tiles = [(m.key, f"{m.display_name} ({m.unit})" if m.unit else m.display_name)
+                 for m in self._monitor_metrics[:4]]
         for i, (key, cap) in enumerate(tiles):
             frame, val = _metric_tile(cap)
             self._metric_vals[key] = val
@@ -244,6 +271,21 @@ class MonitorPanel(QWidget):
                 self._timeline("◆ Mesh generated")
             elif d["stage"] == "fluent_launch" and d["state"] == "done":
                 self._timeline("◆ Solver started")
+            # Phase 8F QA: RuntimeStage events (from the orchestrator) get
+            # a timeline entry so the monitor's event history shows the
+            # high-level pipeline lifecycle.
+            _RS_LABELS = {
+                "preparing": "Preparing",
+                "meshing": "Meshing",
+                "solving": "Solving",
+                "postprocess": "Post-processing",
+                "done": "Done",
+                "failed": "Failed",
+            }
+            rs_label = _RS_LABELS.get(d["stage"])
+            if rs_label and d.get("state") in ("start", "done"):
+                prefix = "▶" if d["state"] == "start" else "✓"
+                self._timeline(f"{prefix} {rs_label}")
         elif t == "fluent.iteration":
             self._append_iteration(d)
         elif t == "solve.progress":
@@ -283,6 +325,10 @@ class MonitorPanel(QWidget):
         self.cl_curve.setData(self._its, self._cl)
         self.cd_curve.setData(self._its, self._cd)
 
+        # Phase 8F: read generic metrics_snapshot if present; fall back to
+        # legacy cl/cd fields for backward-compatible event sources.
+        metrics_snap = d.get("metrics_snapshot") or {}
+
         residuals = d.get("residuals")
         min_res = None
         if residuals:
@@ -307,8 +353,16 @@ class MonitorPanel(QWidget):
 
         # -- live-metric tiles + ETA (presentation math only) ------------ #
         self._metric_vals["iterations"].setText(str(it))
-        self._metric_vals["cl"].setText(f"{cl:.4f}")
-        self._metric_vals["cd"].setText(f"{cd:.5f}")
+        # Phase 8F revision R1+R4: populate metric tiles from metrics_snapshot
+        # using MonitorMetric.key (not template metric names).
+        for mm in self._monitor_metrics:
+            if mm.key in ("iterations", "residual"):
+                continue  # handled separately above
+            val_snapshot = metrics_snap.get(mm.key)
+            if val_snapshot is not None and mm.key in self._metric_vals:
+                unit_sfx = f" {mm.unit}" if mm.unit else ""
+                self._metric_vals[mm.key].setText(
+                    f"{val_snapshot:.4f}{unit_sfx}")
         if min_res is not None:
             self._metric_vals["residual"].setText(f"{min_res:.1e}")
         self._update_eta(frac)
@@ -325,14 +379,29 @@ class MonitorPanel(QWidget):
         extra = "  ".join(f"{k}={v:g}" for k, v in d.get("extra", {}).items())
         self.case_lbl.setText(
             f'Case {d["index"]}/{d["total"]} — {d["case_id"]}')
-        # Live case readout mirrors the engine's case.started payload (still the
-        # aero aoa/velocity schema — a runtime concern out of scope). Read
-        # defensively so a future generic payload can't crash the panel.
+        # Phase 8F: generic case readout from the parameters dict.
+        # Legacy aero fields (aoa/velocity) are a subset of parameters.
         bits = []
-        if d.get("aoa") is not None:
-            bits.append(f'AOA {d["aoa"]:g}°')
-        if d.get("velocity") is not None:
-            bits.append(f'V {d["velocity"]:g} m/s')
+        params = d.get("parameters")
+        if params and isinstance(params, dict):
+            for pname, pval in params.items():
+                display = pname
+                pdef = None
+                tpl = getattr(self._context, 'template', None) if self._context else None
+                if tpl and tpl.parameter(pname):
+                    pdef = tpl.parameter(pname)
+                    display = pdef.display_name
+                unit_sfx = f" {pdef.unit}" if pdef and pdef.unit else ""
+                try:
+                    bits.append(f"{display}={float(pval):g}{unit_sfx}")
+                except (TypeError, ValueError):
+                    bits.append(f"{display}={pval}{unit_sfx}")
+        else:
+            # Legacy fallback for events without a parameters dict.
+            if d.get("aoa") is not None:
+                bits.append(f'AOA {d["aoa"]:g}°')
+            if d.get("velocity") is not None:
+                bits.append(f'V {d["velocity"]:g} m/s')
         if extra:
             bits.append(extra)
         self.info_lbl.setText("   ".join(bits) or "running…")

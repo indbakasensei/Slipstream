@@ -126,7 +126,10 @@ class MainWindow(QMainWindow):
         self.images = ImagesPanel(self.state)
         self.queue = QueuePanel(self.state)
         self.params = ParamsPanel(self.state)
-        self.monitor = MonitorPanel(self.state.context)
+        # Phase 8F QA: monitor consumes MonitorMetric view model from AppState,
+        # never imports SimulationTemplate directly.
+        self.monitor = MonitorPanel(context=self.state.context,
+                                    monitor_metrics=self.state.monitor_metrics)
         self.log_panel = LogConsolePanel()
         self.console = ConsolePanel()
         self.stats = StatsPanel(self.state)

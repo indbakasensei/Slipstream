@@ -1957,3 +1957,175 @@ Migration is **automatic and idempotent**:
 - **8F** generic events + linter.
 - **8G** full registration seam / plugin discovery.
 - **8H** Internal Flow end-to-end through every downstream subsystem.
+
+## 22. Phase 8F — Generic Runtime Layer (Revision)
+
+Phase 8F removes the remaining hardcoded External Aerodynamics assumptions from
+generic infrastructure.  Every runtime subsystem (event bus, telemetry tap, run
+monitor, pre-flight linter, output columns) is now fully template-driven.
+
+### 22.1 Overview
+
+```
+                    SimulationTemplate
+                         |
+          +--------------+--------------+
+          |              |              |
+    supported_params  supported_metrics  output_columns()
+          |              |              |
+    +-----+-----+  +----+----+  +------+------+
+    |           |  |         |  |             |
+  monitor   linter  events  telemetry  state.reload_dataset
+  (tiles)   (rules) (payload) (snap)   (DataFrame cols)
+```
+
+### 22.2 Architecture Changes (Revision)
+
+| Concept | Description |
+|---------|-------------|
+| `MonitorMetric` | Frozen dataclass view model in `cfdauto.events`; built by `AppState`, consumed by `MonitorPanel`. Monitor never imports `SimulationTemplate`. |
+| `EVENT_SCHEMA_VERSION = 2` | Injected into every event payload by `EventBus.emit()` via `setdefault`. |
+| `RuntimeStage` enum | Replaces free-form stage strings: `PREPARING`, `MESHING`, `SOLVING`, `POSTPROCESS`, `DONE`, `FAILED`. `from_wire()` handles legacy strings. |
+| `monitor_priority` | Optional int on `MetricDefinition`; monitor sorts tiles by priority. |
+| `register_lint_rules(id, fn)` | Generic rule registry; no template-id branching in `lint()`. |
+
+### 22.3 Files Modified
+
+| File | Change |
+|------|--------|
+| `cfdauto/events.py` | `EVENT_SCHEMA_VERSION`, `RuntimeStage` enum, `MonitorMetric` dataclass, version injection in `EventBus.emit()` |
+| `cfdauto/telemetry.py` | `metrics_snapshot` dict in `_emit_iteration` payload |
+| `gui/panels/monitor.py` | Consumes `MonitorMetric` list; never imports `SimulationTemplate` |
+| `cfdauto/linter.py` | Generic rule registry via `register_lint_rules()`; no template-id branching in `lint()` |
+| `cfdauto/platform/metrics.py` | `monitor_priority` field added to `MetricDefinition` |
+| `gui/state.py` | `MonitorMetric` list built from template; `_build_monitor_metrics()` method |
+| `cfdauto/orchestrator.py` | `template_id` in batch events, `parameters` in case.started, `metrics` in case.done |
+
+### 22.4 Event Payload Contracts
+
+All runtime events now carry `event_version = 2`:
+
+- **batch.started**: `{total, rows, template_id, event_version}`
+- **case.started**: `{row, case_id, index, total, template_id, parameters: {...}, event_version}`
+- **case.done**: `{row, case_id, result: {...}, metrics: {...}, template_id, event_version}`
+- **batch.finished**: `{ok, failed, stopped, template_id, event_version}`
+- **fluent.iteration**: `{it, max_it, cl, cd, metrics_snapshot: {...}, residuals: {...}, event_version}`
+
+### 22.5 MonitorMetric View Model
+
+```python
+@dataclass(frozen=True)
+class MonitorMetric:
+    key: str           # "cl", "pressure_drop"
+    display_name: str  # "CL", "Pressure Drop"
+    unit: str          # "Pa", "N", ""
+    monitor_priority: int = 100  # lower = appears first
+```
+
+Pipeline: `SimulationTemplate` → `AppState._build_monitor_metrics()` → `List[MonitorMetric]` → `MonitorPanel(monitor_metrics=...)`.
+
+### 22.6 RuntimeStage Enum
+
+```python
+class RuntimeStage(enum.Enum):
+    PREPARING = "preparing"
+    MESHING = "meshing"
+    SOLVING = "solving"
+    POSTPROCESS = "postprocess"
+    DONE = "done"
+    FAILED = "failed"
+
+    @classmethod
+    def from_wire(cls, value: str) -> RuntimeStage:
+        # Maps legacy strings: "mesh"→MESHING, "setup"→SOLVING, etc.
+```
+
+### 22.7 Generic Linter Rule Registry
+
+```python
+register_lint_rules("external-aerodynamics", aero_fn)
+register_lint_rules("internal-flow", internal_flow_fn)
+
+def lint(cfg, experiments, template=None):
+    # Dispatches via registry, not template-id checks
+    if tpl_id and tpl_id in _RULE_REGISTRY:
+        findings.extend(_RULE_REGISTRY[tpl_id](cfg, pending, template))
+    # Universal rules (student-core-cap) always run
+```
+
+### 22.8 What Phase 8F deliberately leaves for later
+
+- **8G** plugin runtime / extension SDK.
+- **8H** Internal Flow end-to-end through every downstream subsystem.
+
+
+---
+
+## 22A. Phase 8F QA Patch
+
+### Bug A — Dashboard Study Summary Hydration
+
+**Root cause:** `_hydrate_study_summary()` was only called during `load_project()`. After a batch run, `_on_finished()` calls `reload_dataset()` but not `_hydrate_study_summary()`, so the Dashboard Study Summary never updated.
+
+**Fix:** `reload_dataset()` now calls `_hydrate_study_summary()` at the end. This ensures the summary stays in sync with the workbook state after every reload — project load, post-batch reload, and manual reload.
+
+**Hydration lifecycle:**
+```
+load_project() → reload_dataset() → _hydrate_study_summary() → studySummaryReady.emit()
+_on_finished()  → reload_dataset() → _hydrate_study_summary() → studySummaryReady.emit()
+```
+
+### Bug B — StatsPanel Generic Columns
+
+**Root cause:** `StatsPanel` used hardcoded `_METRICS = ["CL", "CD", "L/D", "Lift_N", "Drag_N"]` and `done["L/D"]`. For Internal Flow (or any non-aero template), this crashes with `KeyError`.
+
+**Fix:** StatsPanel now reads metric columns via `state.template_metrics()` (which calls `template.output_columns()`). The table rows are rebuilt dynamically. The "best case" headline uses `StudySummary.highlights` with the template's "best-ratio" metric.
+
+### Bug C — MonitorPanel MonitorMetric
+
+**Root cause:** `main_window.py` passed `self.state.context` to `MonitorPanel`, which meant the monitor needed to import `SimulationTemplate` directly. The `_reset_case` method referenced `self._template` which was never defined.
+
+**Fix:** `main_window.py` now passes `monitor_metrics=self.state.monitor_metrics` to `MonitorPanel`. The monitor consumes `MonitorMetric` view model objects. `_reset_case` uses `self._context.template` (the stored context reference) for parameter display name lookup.
+
+### Bug D — RuntimeStage Live Events
+
+**Root cause:** The orchestrator never emitted stage transition events. The monitor had no visibility into the high-level pipeline lifecycle.
+
+**Fix:** The orchestrator now emits `stage` events with `RuntimeStage` values:
+- `PREPARING` at batch start
+- `SOLVING` when each case begins
+- `DONE` / `FAILED` when each case finishes
+
+The monitor adds timeline entries for these RuntimeStage events.
+
+### Files Modified (QA Patch)
+
+| File | Change |
+|------|--------|
+| `gui/state.py` | `reload_dataset()` calls `_hydrate_study_summary()`; `apply_event()` uses template-driven columns; `template_metrics()` helper added |
+| `gui/panels/stats_panel.py` | Dynamic metric columns from template; "best case" from StudySummary highlights |
+| `gui/panels/monitor.py` | Consumes `MonitorMetric` view model; `self._context` for template lookup; RuntimeStage timeline entries |
+| `gui/main_window.py` | Passes `monitor_metrics=self.state.monitor_metrics` to MonitorPanel |
+| `cfdauto/orchestrator.py` | Emits `RuntimeStage` stage events in run loop |
+
+### Tests Added (QA Patch): 16
+
+| # | Test | Bug |
+|---|------|-----|
+| 1 | `test_hydrate_study_summary_after_reload` | A |
+| 2 | `test_hydrate_study_summary_empty_workbook` | A |
+| 3 | `test_study_summary_json_round_trip_persistence` | A |
+| 4 | `test_template_metrics_external_aero` | B |
+| 5 | `test_template_metrics_internal_flow` | B |
+| 6 | `test_output_cols_for_template_dynamic` | B |
+| 7 | `test_apply_event_uses_template_metrics` | B |
+| 8 | `test_monitor_metric_frozen_dataclass` | C |
+| 9 | `test_monitor_metric_sorting_by_priority` | C |
+| 10 | `test_build_monitor_metrics_external_aero` | C |
+| 11 | `test_build_monitor_metrics_internal_flow` | C |
+| 12 | `test_monitor_metric_default_priority` | C |
+| 13 | `test_runtime_stage_serialization` | D |
+| 14 | `test_runtime_stage_all_members` | D |
+| 15 | `test_runtime_stage_events_emitted_by_bus` | D |
+| 16 | `test_event_schema_version_present` | D |
+| 17 | `test_monitor_timeline_labels_for_runtime_stages` | D |

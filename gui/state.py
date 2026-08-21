@@ -24,7 +24,7 @@ import pandas as pd
 from PySide6.QtCore import QObject, Signal
 
 from cfdauto.config import Config, load_config
-from cfdauto.events import Event
+from cfdauto.events import Event, MonitorMetric
 from cfdauto.excel_manager import ExcelManager
 from cfdauto.experiment_definition import ExperimentDefinition
 from cfdauto.logging_setup import setup_logging
@@ -33,8 +33,27 @@ from cfdauto.study_analytics import StudySummary, analyze_study
 
 log = logging.getLogger("gui.state")
 
-OUTPUT_COLS = ["CL", "CD", "L/D", "Lift_N", "Drag_N",
-               "Iterations", "Converged", "Error", "CaseDir", "Duration_min"]
+# Phase 8F: bookkeeping columns are always the same; physics columns come
+# from the template's output_columns().
+_BOOKKEEPING_COLS = ["Iterations", "Converged", "Error", "CaseDir",
+                      "Duration_min"]
+# Legacy default for callers that read OUTPUT_COLS without a template context.
+OUTPUT_COLS = ["CL", "CD", "L/D", "Lift_N", "Drag_N"] + _BOOKKEEPING_COLS
+
+
+def _output_cols_for_template(template) -> list:
+    """Build the DataFrame output column list from the active template.
+
+    Returns the template's declared output column headers (in display order)
+    followed by the universal bookkeeping columns.  Falls back to the legacy
+    hardcoded list when the template does not declare any metrics.
+    """
+    if template is None:
+        return list(OUTPUT_COLS)
+    metric_cols = [header for _, header in template.output_columns()]
+    if not metric_cols:
+        return list(OUTPUT_COLS)
+    return metric_cols + _BOOKKEEPING_COLS
 
 
 class AppState(QObject):
@@ -67,6 +86,42 @@ class AppState(QObject):
         # Phase 8E: post-batch analytics summary, hydrated on project load
         # and updated after every batch run.
         self.study_summary: Optional[StudySummary] = None
+        # Phase 8F revision R1+R4: MonitorMetric view model list, built
+        # from the template's supported_metrics and sorted by monitor_priority.
+        # The MonitorPanel consumes these; it never imports SimulationTemplate.
+        self.monitor_metrics: List[MonitorMetric] = []
+        self._build_monitor_metrics()
+
+    # ------------------------------------------------------------------ #
+    # MonitorMetric view model (Phase 8F R1+R4)
+    # ------------------------------------------------------------------ #
+    def _build_monitor_metrics(self) -> None:
+        """Build the sorted MonitorMetric list from the active template.
+
+        Two bookkeeping tiles (``iterations``, ``residual``) are always
+        prepended with negative priority so they appear first.  Physics
+        metrics follow sorted by ``monitor_priority``.
+        """
+        tpl = self.context.template
+        metrics: List[MonitorMetric] = [
+            MonitorMetric(key="iterations", display_name="Iterations",
+                          unit="", monitor_priority=-20),
+            MonitorMetric(key="residual", display_name="Min residual",
+                          unit="", monitor_priority=-10),
+        ]
+        for md in tpl.supported_metrics:
+            # monitor_priority comes from the metric definition if present,
+            # otherwise defaults to 100 + declaration order.
+            pri = getattr(md, "monitor_priority", None)
+            if pri is None:
+                pri = 100 + len(metrics)
+            metrics.append(MonitorMetric(
+                key=md.name,
+                display_name=md.display_name,
+                unit=md.unit or "",
+                monitor_priority=pri))
+        metrics.sort(key=lambda m: m.monitor_priority)
+        self.monitor_metrics = metrics
 
     # ------------------------------------------------------------------ #
     # Project lifecycle
@@ -82,6 +137,7 @@ class AppState(QObject):
         self.context = SimulationContext.for_config(self.cfg,
                                                     project=self.config_path.stem)
         self.experiment_definition = ExperimentDefinition.from_context(self.context)
+        self._build_monitor_metrics()
         # Same logging contract as the CLI: root at DEBUG, rotating file in
         # <work_dir>/logs. The Qt console handler attaches per-run on top.
         setup_logging(self.cfg.work_dir() / "logs")
@@ -125,10 +181,19 @@ class AppState(QObject):
                 rec[label] = pv.value if pv is not None else None
             for name in self.wbp_names:
                 rec[name] = exp.extra_wb_params.get(name)
+            # Phase 8F: populate template-declared output columns + bookkeeping.
+            out_metrics = {}
+            for metric_name, col_header in self.context.template.output_columns():
+                # Map known metric names to read_row_outputs keys.
+                _key_map = {"cl": "cl", "cd": "cd", "l_over_d": "cl_cd",
+                            "lift": "lift", "drag": "drag",
+                            "pressure_drop": "pressure_drop",
+                            "reynolds_number": "reynolds_number",
+                            "friction_factor": "friction_factor"}
+                out_key = _key_map.get(metric_name, metric_name)
+                out_metrics[col_header] = _num(out.get(out_key))
+            rec.update(out_metrics)
             rec.update({
-                "CL": _num(out["cl"]), "CD": _num(out["cd"]),
-                "L/D": _num(out["cl_cd"]),
-                "Lift_N": _num(out["lift"]), "Drag_N": _num(out["drag"]),
                 "Iterations": _num(out["iterations"]),
                 "Converged": out["converged"] or "",
                 "Error": out["error"] or "",
@@ -136,10 +201,15 @@ class AppState(QObject):
                 "Duration_min": _num(out["duration"]),
             })
             rows.append(rec)
+        out_cols = _output_cols_for_template(self.context.template)
         cols = (["Row", "CaseID"] + input_labels + self.wbp_names
-                + ["Status"] + OUTPUT_COLS)
+                + ["Status"] + out_cols)
         self.df = pd.DataFrame(rows, columns=cols)
         self.datasetChanged.emit()
+        # Phase 8F QA: ensure the Study Summary stays in sync with the
+        # current workbook state — covers reload, post-batch reload, and
+        # any other reload_dataset() caller.
+        self._hydrate_study_summary()
 
     # Phase 8E: compute StudySummary from the current workbook state and
     # emit it so the Dashboard Study Summary panel hydrates immediately.
@@ -183,20 +253,26 @@ class AppState(QObject):
             self._set(d["row"], Status="RUNNING", Error="")
         elif evt.type == "case.done":
             r = d.get("result", {})
-            ld = r.get("cl_over_cd")
-            if ld is None and r.get("cl") is not None and r.get("cd"):
-                try:
-                    ld = r["cl"] / r["cd"]
-                except ZeroDivisionError:
-                    ld = None
-            self._set(d["row"], Status="DONE",
-                      CL=r.get("cl"), CD=r.get("cd"), **{"L/D": ld},
-                      Lift_N=r.get("lift_n"), Drag_N=r.get("drag_n"),
-                      Iterations=r.get("iterations"),
-                      Converged="YES" if r.get("converged") else "NO",
-                      Error=r.get("error") or "",
-                      CaseDir=r.get("artifact_dir") or "",
-                      Duration_min=r.get("duration_min"))
+            metrics = d.get("metrics", {})
+            # Phase 8F QA: use template-declared columns generically.
+            # Build a column→value map from the generic metrics dict,
+            # keyed by display header (matching the DataFrame columns).
+            values: Dict[str, object] = {
+                "Status": "DONE",
+                "Iterations": r.get("iterations"),
+                "Converged": "YES" if r.get("converged") else "NO",
+                "Error": r.get("error") or "",
+                "CaseDir": r.get("artifact_dir") or "",
+                "Duration_min": r.get("duration_min"),
+            }
+            # Map template metric names to display headers.
+            for metric_name, col_header in self.context.template.output_columns():
+                # Try the metrics dict first, then the result dict.
+                val = metrics.get(metric_name)
+                if val is None:
+                    val = r.get(metric_name)
+                values[col_header] = val
+            self._set(d["row"], **values)
         elif evt.type == "case.failed":
             self._set(d["row"], Status="FAILED", Error=d.get("error", ""))
 
@@ -257,6 +333,15 @@ class AppState(QObject):
         """The active study's input parameters, in display order
         (:class:`~cfdauto.platform.study_definition.StudyParameter`)."""
         return self.experiment_definition.study.ordered()
+
+    def template_metrics(self) -> List[str]:
+        """Display-name list of the template's output metric columns.
+
+        Used by panels (StatsPanel, etc.) to render only the metrics
+        relevant to the active template instead of hardcoded aero names.
+        """
+        tpl = self.context.template
+        return [header for _, header in tpl.output_columns()]
 
     def primary_input(self):
         """The study's first input parameter (the natural x-axis / range

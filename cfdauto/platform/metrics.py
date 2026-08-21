@@ -81,3 +81,4 @@ class MetricDefinition:
     description: str = ""
     output_column: Optional[str] = None
     analytics_role: Optional[str] = None
+    monitor_priority: Optional[int] = None

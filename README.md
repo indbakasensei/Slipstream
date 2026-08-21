@@ -438,6 +438,25 @@ The database is additive and non-fatal — if it fails to open or write, the bat
 **Future roadmap.** A ledger-backed historical view across many past batches, and a report generator, are tracked in [`docs/PRODUCT_BACKLOG.md`](docs/PRODUCT_BACKLOG.md) (§4.3 — GUI Study Analytics Panel) — not part of this module.
 
 ---
+---
+
+## Generic Runtime Layer (Phase 8F)
+
+**What changed.** Phase 8F removes the last hardcoded External Aerodynamics
+assumptions from generic infrastructure.  Events, telemetry, monitor tiles,
+the pre-flight linter, and the DataFrame output columns are now fully
+template-driven.
+
+- **Event payloads** carry `template_id`, `parameters`, `metrics`, and
+  `event_version = 2`.  Legacy fields preserved for backward compatibility.
+- **RuntimeStage enum** replaces free-form stage strings.
+- **MonitorMetric** view model: monitor consumes only `MonitorMetric` objects,
+  never `SimulationTemplate` directly.
+- **Linter rule registry**: templates register rules via
+  `register_lint_rules()` — no template-id branching in `lint()`.
+- **Output columns** come from `template.output_columns()`.
+
+See `docs/PLATFORM_ARCHITECTURE.md` §22 for the full architecture.
 
 ## Projects
 
@@ -812,3 +831,12 @@ Slipstream is not affiliated with or endorsed by Ansys, Inc. ANSYS, Fluent, and 
 ---
 
 **No telemetry. No cloud dependency. Your compute, your data, your machine.**
+
+### Phase 8F QA Patch
+
+Fixed four critical integration bugs:
+
+- **Dashboard Hydration:** Study Summary now hydrates from completed workbook rows on project load and reload — no batch run required.
+- **Stats Panel:** Metric columns are now template-driven — works for External Aero, Internal Flow, and any future template.
+- **Monitor View Model:** MonitorPanel consumes `MonitorMetric` objects from AppState, never imports `SimulationTemplate` directly.
+- **RuntimeStage Events:** Orchestrator emits `PREPARING` / `SOLVING` / `DONE` / `FAILED` stage transitions for the monitor timeline.
