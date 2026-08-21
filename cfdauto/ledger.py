@@ -34,7 +34,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 log = logging.getLogger("cfdauto.db")
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -84,7 +84,10 @@ CREATE TABLE IF NOT EXISTS cases (
     cl REAL, cd REAL, lift_n REAL, drag_n REAL,
     iterations INTEGER, converged INTEGER,
     error TEXT,
-    artifact_dir TEXT
+    artifact_dir TEXT,
+    template_id TEXT,                 -- Phase 8E: generic template identifier
+    parameters_json TEXT DEFAULT '{}', -- Phase 8E: generic parameter map
+    metrics_json TEXT DEFAULT '{}'    -- Phase 8E: generic metric map
 );
 CREATE INDEX IF NOT EXISTS idx_cases_batch ON cases(batch_id);
 CREATE INDEX IF NOT EXISTS idx_cases_case_id ON cases(case_id);
@@ -191,9 +194,33 @@ class Ledger:
                     "INSERT INTO schema_version(version, applied_at) VALUES (?,?)",
                     (SCHEMA_VERSION, datetime.now().isoformat(timespec="seconds")))
             elif row[0] < SCHEMA_VERSION:
-                # Future migrations go here — v1 has no upgrade path yet.
-                log.warning("DB schema is at v%d, code expects v%d.",
-                            row[0], SCHEMA_VERSION)
+                log.info("Ledger schema v%d → v%d migration starting.",
+                         row[0], SCHEMA_VERSION)
+                self._migrate(row[0], SCHEMA_VERSION)
+                self._conn.execute(
+                    "UPDATE schema_version SET version=?, applied_at=?",
+                    (SCHEMA_VERSION,
+                     datetime.now().isoformat(timespec="seconds")))
+                log.info("Ledger schema migration complete — now at v%d.",
+                         SCHEMA_VERSION)
+
+    def _migrate(self, from_ver: int, to_ver: int) -> None:
+        """Apply schema migrations incrementally.  Each migration is
+        idempotent — ``ALTER TABLE … ADD COLUMN`` is a no-op when the column
+        already exists in SQLite ≥ 3.37.
+        """
+        if from_ver < 2:
+            # Phase 8E: add generic template/parameters/metrics columns.
+            for col_def in (
+                "ALTER TABLE cases ADD COLUMN template_id TEXT",
+                "ALTER TABLE cases ADD COLUMN parameters_json TEXT DEFAULT '{}'",
+                "ALTER TABLE cases ADD COLUMN metrics_json TEXT DEFAULT '{}'",
+            ):
+                try:
+                    self._conn.execute(col_def)
+                except sqlite3.OperationalError:
+                    pass   # column already exists
+            log.info("Ledger schema migrated v1 → v2: generic case columns.")
 
     # ------------------------------------------------------------------ #
     # Study / batch lifecycle
@@ -250,34 +277,52 @@ class Ledger:
     # ------------------------------------------------------------------ #
     def start_case(self, batch_id: int, row: int, case_id: str,
                    aoa_deg: float, velocity: float,
-                   extra: Optional[Dict[str, Any]] = None) -> int:
+                   extra: Optional[Dict[str, Any]] = None,
+                   *, template_id: Optional[str] = None,
+                   parameters: Optional[Dict[str, Any]] = None) -> int:
+        """Register a case in the ledger.
+
+        Phase 8E adds generic ``template_id`` / ``parameters`` for
+        template-driven storage while preserving the legacy aero columns
+        for backward-compatible reads.
+        """
+        params_json = json.dumps(parameters or {})
         with self._tx() as c:
             cur = c.execute(
                 "INSERT INTO cases(batch_id, row_number, case_id, aoa_deg, "
-                "velocity_m_s, extra_params_json, status, started_at) "
-                "VALUES (?,?,?,?,?,?,?,?)",
+                "velocity_m_s, extra_params_json, status, started_at, "
+                "template_id, parameters_json) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (batch_id, row, case_id, aoa_deg, velocity,
                  json.dumps(extra or {}), "RUNNING",
-                 datetime.now().isoformat(timespec="seconds")))
+                 datetime.now().isoformat(timespec="seconds"),
+                 template_id, params_json))
             return cur.lastrowid
 
     def finish_case(self, case_pk: int, status: str,
                     result: Optional[Dict[str, Any]] = None,
                     error: Optional[str] = None,
-                    artifact_dir: Optional[str] = None) -> None:
+                    artifact_dir: Optional[str] = None,
+                    *, metrics: Optional[Dict[str, Any]] = None) -> None:
+        """Update a case at completion.
+
+        Phase 8E adds generic ``metrics`` for template-driven storage while
+        preserving the legacy cl/cd/lift_n/drag_n columns.
+        """
         r = result or {}
+        metrics_json = json.dumps(metrics or {})
         with self._tx() as c:
             c.execute(
                 "UPDATE cases SET status=?, finished_at=?, cl=?, cd=?, "
                 "lift_n=?, drag_n=?, iterations=?, converged=?, error=?, "
-                "artifact_dir=? WHERE id=?",
+                "artifact_dir=?, metrics_json=? WHERE id=?",
                 (status,
                  datetime.now().isoformat(timespec="seconds"),
                  r.get("cl"), r.get("cd"),
                  r.get("lift_n"), r.get("drag_n"),
                  r.get("iterations"),
                  1 if r.get("converged") else 0 if "converged" in r else None,
-                 error, artifact_dir, case_pk))
+                 error, artifact_dir, metrics_json, case_pk))
 
     def record_iteration(self, case_pk: int, it: int, cl: float, cd: float,
                          residuals: Optional[Dict[str, float]] = None) -> None:

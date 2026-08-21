@@ -423,9 +423,19 @@ The database is additive and non-fatal — if it fails to open or write, the bat
 
 **Accessing it.** `Orchestrator._current_study_summary` always holds the most recently *completed* `run()` call's summary (reset to `None` at the start of every `run()`, then populated at every normal return — including a partial summary, with warnings, if the batch stopped early). It stays `None` only if `run()` raises before finishing its own bookkeeping (a `FrameworkError` abort from bad config/environment) — the raised exception is the caller's signal in that case.
 
-**Limitations in this version.** No GUI panel yet, no historical/cross-batch view, and no persistence of the summary itself (it's recomputed fresh from Excel each time, and discarded when the process exits). The `average_l_over_d` / `average_cl` / `average_cd` / `average_iterations` fields exist on `StudySummary` today but are reserved for a future sprint — always `None` in v1.
+**Dashboard hydration (Phase 8E).** Opening an existing project now automatically recomputes the analytics summary from the workbook's completed rows and displays it on the Dashboard's Study Summary cards — no batch run required. The workbook is always the primary source of truth; the persisted JSON summary is a fallback *only* when the workbook has zero completed rows.
 
-**Future roadmap.** A GUI panel that renders this summary, and a ledger-backed historical view across many past batches, are tracked as a separate, larger feature in [`docs/PRODUCT_BACKLOG.md`](docs/PRODUCT_BACKLOG.md) (§4.3 — GUI Study Analytics Panel) — not part of this module.
+**Persistence (Phase 8E).** After every batch run, the orchestrator saves the summary to `<work_dir>/last_study_summary.json` as a JSON file. `StudyHighlight` and `StudySummary` are now serialisable dataclasses with `to_json()`/`from_json()`/`save_json()`/`load_json()` methods.
+
+**Storage locations** (all under `work_dir`):
+- `cases/<case_id>/result.json` — per-case results (authoritative)
+- `slipstream.db` — SQLite ledger (provenance, iterations, config hashes)
+- `last_study_summary.json` — post-batch analytics summary
+- `experiments.xlsx` — workbook (source of truth for all reads)
+
+**Limitations in this version.** No historical/cross-batch view from the GUI yet (the summary shows the most recent batch only). The `average_l_over_d` / `average_cl` / `average_cd` / `average_iterations` fields exist on `StudySummary` today but are reserved for a future sprint — always `None` in v1.
+
+**Future roadmap.** A ledger-backed historical view across many past batches, and a report generator, are tracked in [`docs/PRODUCT_BACKLOG.md`](docs/PRODUCT_BACKLOG.md) (§4.3 — GUI Study Analytics Panel) — not part of this module.
 
 ---
 

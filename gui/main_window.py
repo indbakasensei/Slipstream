@@ -466,6 +466,8 @@ class MainWindow(QMainWindow):
         st.runStateChanged.connect(self._run_state_changed)
         st.runStateChanged.connect(self._console_run_state)
         st.projectLoaded.connect(self._sync_mock_ui)
+        # Phase 8E: hydrate Dashboard Study Summary on project load
+        st.studySummaryReady.connect(self.dashboard.set_study_summary)
 
         # Console commands route to the same actions the toolbar/menus use.
         self.console.openRequested.connect(self._open_dialog)

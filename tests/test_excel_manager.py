@@ -285,5 +285,9 @@ def test_dump_recovery_csv_writes_header_once_then_appends(tmp_path):
     mgr.dump_recovery_csv(csv_path, exp, res, STATUS_DONE)
 
     lines = csv_path.read_text().splitlines()
-    assert lines[0].startswith("row,aoa_deg")
+    # Phase 8E: header is template-driven (parameter names from the study
+    # definition), not hardcoded aero columns.
+    assert lines[0].startswith("row,")
+    assert "aoa" in lines[0]        # template parameter name
+    assert "velocity" in lines[0]   # template parameter name
     assert len(lines) == 3          # header + 2 data rows, no duplicate header

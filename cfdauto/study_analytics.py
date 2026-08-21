@@ -44,9 +44,11 @@ never a subjective judgment call:
 
 from __future__ import annotations
 
+import json
 import math
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .excel_manager import ExcelManager
@@ -110,6 +112,16 @@ class StudyHighlight:
     role: str
     display_name: str
 
+    # -- serialisation (Phase 8E) -------------------------------------- #
+    def to_dict(self) -> Dict[str, Any]:
+        """JSON-safe dict for persistence."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "StudyHighlight":
+        """Rehydrate from a persisted dict."""
+        return cls(**d)
+
 
 @dataclass
 class StudySummary:
@@ -152,6 +164,61 @@ class StudySummary:
     average_cl: Optional[float] = None
     average_cd: Optional[float] = None
     average_iterations: Optional[float] = None
+
+    # -- serialisation (Phase 8E) -------------------------------------- #
+    def to_json(self) -> str:
+        """Serialise the entire summary to a JSON string."""
+        d = asdict(self)
+        # StudyHighlight objects serialise via their own to_dict.
+        d["highlights"] = {k: v.to_dict() if hasattr(v, "to_dict") else v
+                            for k, v in self.highlights.items()}
+        return json.dumps(d, indent=2, ensure_ascii=False)
+
+    @classmethod
+    def from_json(cls, text: str) -> "StudySummary":
+        """Rehydrate a summary from :meth:`to_json` output.
+
+        Handles both old (dict-based) and new (StudyHighlight-based)
+        highlight formats for backward compatibility.
+        """
+        d = json.loads(text)
+        hl_raw = d.pop("highlights", {})
+        hl: Dict[str, StudyHighlight] = {}
+        for k, v in hl_raw.items():
+            if isinstance(v, dict) and "metric" in v:
+                hl[k] = StudyHighlight.from_dict(v)
+            elif isinstance(v, dict):
+                # Legacy dict-based format (Phase 8D initial).
+                hl[k] = StudyHighlight(
+                    metric=v.get("metric", k),
+                    value=v.get("value", 0.0),
+                    row=v.get("row", 0),
+                    unit=v.get("unit", ""),
+                    role=v.get("role", ""),
+                    display_name=v.get("display_name", k))
+        # StudyWarning objects need reconstruction.
+        warnings_raw = d.pop("warnings", [])
+        warnings = [StudyWarning(code=WarningCode(w["code"]),
+                                 message=w["message"])
+                    for w in warnings_raw]
+        return cls(highlights=hl, warnings=warnings, **d)
+
+    def save_json(self, path: Path) -> None:
+        """Persist the summary to a JSON file."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(self.to_json(), encoding="utf-8")
+
+    @classmethod
+    def load_json(cls, path: Path) -> Optional["StudySummary"]:
+        """Load a persisted summary. Returns None if the file is missing
+        or corrupt.
+        """
+        if not path.exists():
+            return None
+        try:
+            return cls.from_json(path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
 
 
 def _finite(x: object) -> bool:

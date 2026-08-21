@@ -1835,7 +1835,7 @@ regardless of template. Metrics are physics quantities only.
 
 ### 20.7 What Phase 8D deliberately leaves for later
 
-- **8E** generic storage / ledger (ledger schema still hardcoded).
+- **8E** generic storage / ledger. ✅ Complete.
 - **8F** generic events + linter.
 - **8G** full registration seam / plugin discovery.
 - **8H** Internal Flow end-to-end through every downstream subsystem.
@@ -1843,3 +1843,117 @@ regardless of template. Metrics are physics quantities only.
 The GUI, ledger, excel_manager, state, and execution are **untouched**
 (except the orchestrator one-line `template=` pass-through and log line
 update).
+
+---
+
+## 21. Phase 8E — Generic Persistence & Dashboard Hydration
+
+### 21.1 Overview
+
+Phase 8E fixes the Dashboard Study Summary hydration bug (opening an
+existing project left summary cards empty) and genericises the persistence
+layer: ledger, study summary JSON, and recovery CSV.
+
+### 21.2 Changes
+
+| File | Change |
+|------|--------|
+| `gui/state.py` | Added `studySummaryReady` signal; `study_summary` attribute; `_hydrate_study_summary()` computes analytics on project load |
+| `gui/main_window.py` | Connected `state.studySummaryReady` → `dashboard.set_study_summary` |
+| `cfdauto/ledger.py` | Schema v2: added `template_id`, `parameters_json`, `metrics_json` columns; `start_case()`/`finish_case()` accept generic kwargs; v1→v2 migration |
+| `cfdauto/orchestrator.py` | `_ledger_start_case()` passes template_id/parameters; `_ledger_finish_case()` passes generic metrics; saves summary JSON after batch |
+| `cfdauto/study_analytics.py` | `StudyHighlight.to_dict()`/`from_dict()`; `StudySummary.to_json()`/`from_json()`/`save_json()`/`load_json()` |
+| `cfdauto/excel_manager.py` | `dump_recovery_csv()` uses template-driven headers |
+| `tests/test_excel_manager.py` | Updated recovery CSV test for template-driven headers |
+| `tests/test_phase8e_generic_persistence.py` | 28 tests covering all Phase 8E changes |### 21.3 Dashboard Hydration Lifecycle
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Project Load / Reload                                        │
+│                                                              │
+│  AppState.load_project(config_path)                          │
+│    ├─ load_config() → self.cfg                              │
+│    ├─ SimulationContext.for_config() → self.context          │
+│    ├─ ExcelManager.for_config() → self.excel                │
+│    ├─ reload_dataset() → self.df (DataFrame)                │
+│    └─ _hydrate_study_summary()                              │
+│         ├─ all_rows = [e.row for e in excel.read_experiments()]
+│         ├─ summary = analyze_study(excel, all_rows, template)
+│         │   └─ reads completed rows from workbook (PRIMARY) │
+│         ├─ IF total==0 AND successful==0:                   │
+│         │   └─ summary = StudySummary.load_json(            │
+│         │        work_dir/last_study_summary.json)          │
+│         │       (FALLBACK — only when workbook has no data) │
+│         └─ studySummaryReady.emit(summary) ─────────────────┼──►
+│                                                              │
+│  main_window.py:                                            │
+│    st.studySummaryReady.connect(dashboard.set_study_summary)│
+│                                                              │
+│  DashboardPanel.set_study_summary(summary)                   │
+│    └─ StudySummaryPanel.set_summary(summary)                │
+│         └─ cards["best_ld"].set_value(...)                  │
+│         └─ cards["highest_lift"].set_value(...)             │
+│         └─ cards["lowest_drag"].set_value(...)              │
+│         └─ cards["fastest_conv"].set_value(...)             │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Key design rule:** The workbook is always the primary source of truth.
+The persisted JSON summary is a fallback *only* when the workbook has zero
+completed rows. Stale JSON never overwrites fresh workbook analytics.
+
+### 21.4 Storage Pipeline
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Orchestrator.run()                                          │
+│                                                              │
+│  For each case:                                             │
+│    ├─ _run_one(exp)                                         │
+│    │    ├─ strategy.execute_case() → CaseResult             │
+│    │    ├─ _record_success()                                │
+│    │    │    ├─ state.write_result_json(exp, payload)  ◄────┤── result.json
+│    │    │    └─ excel.write_result(exp, res, status)   ◄────┤── workbook
+│    │    └─ _ledger_finish_case()                             │
+│    │         ├─ legacy: cl/cd/lift_n/drag_n columns  ◄────┤── SQLite
+│    │         └─ generic: metrics_json column          ◄────┤── SQLite
+│    │                                                        │
+│  After batch:                                               │
+│    ├─ _finalize_study_summary() → StudySummary             │
+│    ├─ summary.save_json(work_dir/last_study_summary.json)◄──┤── JSON
+│    └─ ledger.finish_batch()                                  │
+└──────────────────────────────────────────────────────────────┘
+
+Persistence targets (all under work_dir):
+  ├── cases/<case_id>/result.json     (per-case, authoritative)
+  ├── slipstream.db                   (SQLite ledger, provenance)
+  ├── last_study_summary.json         (post-batch analytics)
+  └── experiments.xlsx                (workbook, source of truth)
+```
+
+### 21.5 Ledger Schema Migration Strategy
+
+```
+Schema v1 (pre-8E):          Schema v2 (Phase 8E):
+  cases.aoa_deg                 cases.aoa_deg        (preserved)
+  cases.velocity_m_s            cases.velocity_m_s   (preserved)
+  cases.cl/cd/lift_n/drag_n    cases.cl/cd/lift_n/drag_n (preserved)
+                                cases.template_id    (NEW)
+                                cases.parameters_json (NEW)
+                                cases.metrics_json    (NEW)
+```
+
+Migration is **automatic and idempotent**:
+
+1. On `Ledger.__init__()`, `_init_schema()` checks `schema_version`.
+2. If version < SCHEMA_VERSION (2), `_migrate(1, 2)` runs.
+3. `ALTER TABLE cases ADD COLUMN` is idempotent in SQLite ≥ 3.37.
+4. `schema_version` table is updated to v2 after migration.
+5. Legacy columns are never removed — old queries keep working.
+6. Crash during migration is safe: next startup re-runs the idempotent ALTERs.
+
+### 21.6 What Phase 8E deliberately leaves for later
+
+- **8F** generic events + linter.
+- **8G** full registration seam / plugin discovery.
+- **8H** Internal Flow end-to-end through every downstream subsystem.

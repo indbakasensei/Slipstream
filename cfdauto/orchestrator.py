@@ -30,7 +30,7 @@ import logging
 import time
 import traceback
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from .config import Config
 from .error_formatting import format_error
@@ -313,6 +313,15 @@ class Orchestrator:
                 pass
         self.bus.emit("batch.finished", ok=done, failed=failures, stopped=stopped)
         self._current_study_summary = self._finalize_study_summary([e.row for e in todo])
+        # Phase 8E: persist the summary so it survives restarts and can be
+        # loaded on the next project open without a new batch run.
+        if self._current_study_summary is not None:
+            try:
+                summary_path = self.cfg.work_dir() / "last_study_summary.json"
+                self._current_study_summary.save_json(summary_path)
+            except Exception:
+                log.debug("Study summary persistence failed — non-fatal",
+                          exc_info=True)
         self._execution_result = ExecutionResult(
             status=STATUS_STOPPED if stopped else STATUS_COMPLETED,
             completed_cases=done, failed_cases=failures,
@@ -367,11 +376,10 @@ class Orchestrator:
 
         case_dir = self.state.case_dir(exp)
         # v0.9-M3: register case in ledger before running.
+        # Phase 8E: pass generic template/parameters for template-driven storage.
         if self.ledger is not None and self._batch_id is not None:
             try:
-                self._current_case_pk = self.ledger.start_case(
-                    self._batch_id, exp.row, exp.case_id,
-                    exp.aoa_deg, exp.velocity, dict(exp.extra_wb_params))
+                self._current_case_pk = self._ledger_start_case(exp)
             except Exception:
                 log.debug("ledger.start_case failed", exc_info=True)
                 self._current_case_pk = None
@@ -418,10 +426,30 @@ class Orchestrator:
             remove_handler(case_handler)
             self._current_case_pk = None
 
+    def _ledger_start_case(self, exp: Experiment) -> int:
+        """Register a case in the ledger with generic template data.
+
+        Phase 8E: passes template_id and parameters for template-driven
+        storage while preserving legacy aero columns for backward reads.
+        """
+        tpl_id = None
+        params: Dict[str, float] = {}
+        if exp.template is not None:
+            tpl_id = exp.template.id
+            params = {name: pv.value
+                      for name, pv in exp.parameters.items()}
+        return self.ledger.start_case(
+            self._batch_id, exp.row, exp.case_id,
+            exp.aoa_deg, exp.velocity, dict(exp.extra_wb_params),
+            template_id=tpl_id, parameters=params)
+
     def _ledger_finish_case(self, status: str, res: CaseResult,
                             case_dir: Path,
                             error: Optional[str] = None) -> None:
-        """Best-effort ledger update at case completion."""
+        """Best-effort ledger update at case completion.
+
+        Phase 8E: passes generic metrics dict alongside legacy aero fields.
+        """
         if self.ledger is None or self._current_case_pk is None:
             return
         try:
@@ -429,9 +457,14 @@ class Orchestrator:
                        "lift_n": res.lift_n, "drag_n": res.drag_n,
                        "iterations": res.iterations,
                        "converged": res.converged}
+            # Generic metrics from the template-attached result.
+            generic_metrics: Dict[str, Any] = {}
+            if res.template is not None:
+                generic_metrics = res.metrics_dict()
             self.ledger.finish_case(self._current_case_pk, status,
                                     result=payload, error=error,
-                                    artifact_dir=str(case_dir))
+                                    artifact_dir=str(case_dir),
+                                    metrics=generic_metrics)
         except Exception:
             log.debug("ledger.finish_case failed", exc_info=True)
 

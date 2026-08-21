@@ -29,6 +29,7 @@ from cfdauto.excel_manager import ExcelManager
 from cfdauto.experiment_definition import ExperimentDefinition
 from cfdauto.logging_setup import setup_logging
 from cfdauto.simulation_context import SimulationContext
+from cfdauto.study_analytics import StudySummary, analyze_study
 
 log = logging.getLogger("gui.state")
 
@@ -43,6 +44,7 @@ class AppState(QObject):
     runStateChanged = Signal(bool)     # True while a batch is executing
     caseSelected = Signal(int)         # Excel row number (or -1)
     projectLoaded = Signal()
+    studySummaryReady = Signal(object)  # Phase 8E: StudySummary on load/reload
 
     def __init__(self) -> None:
         super().__init__()
@@ -62,6 +64,9 @@ class AppState(QObject):
         # Phase 3B: runtime materialization of the study's input schema
         # (spreadsheet columns, editable/validation metadata, default rows).
         self.experiment_definition = ExperimentDefinition.from_context(self.context)
+        # Phase 8E: post-batch analytics summary, hydrated on project load
+        # and updated after every batch run.
+        self.study_summary: Optional[StudySummary] = None
 
     # ------------------------------------------------------------------ #
     # Project lifecycle
@@ -83,6 +88,9 @@ class AppState(QObject):
         self.excel = ExcelManager.for_config(self.cfg)
         self.wbp_names = self.excel.wbp_names()
         self.reload_dataset()
+        # Phase 8E: hydrate Dashboard Study Summary from completed rows
+        # on project load — no batch run required.
+        self._hydrate_study_summary()
         log.info("Project loaded: %s  (%d experiments, WBP: %s)",
                  self.config_path, len(self.df),
                  ", ".join(self.wbp_names) or "none")
@@ -132,6 +140,40 @@ class AppState(QObject):
                 + ["Status"] + OUTPUT_COLS)
         self.df = pd.DataFrame(rows, columns=cols)
         self.datasetChanged.emit()
+
+    # Phase 8E: compute StudySummary from the current workbook state and
+    # emit it so the Dashboard Study Summary panel hydrates immediately.
+    def _hydrate_study_summary(self) -> None:
+        """Recompute the analytics summary from the workbook's current state.
+
+        Called after ``reload_dataset()`` on project load and after every
+        batch run.  Never fatal — if analytics fails, the panel stays empty.
+        Falls back to the persisted JSON summary when the workbook has no
+        completed rows (Phase 8E).
+        """
+        if self.excel is None:
+            return
+        try:
+            all_rows = [e.row for e in self.excel.read_experiments()]
+            self.study_summary = analyze_study(
+                self.excel, all_rows, template=self.context.template)
+            # If the workbook has no completed rows, try loading the last
+            # persisted summary from disk (Phase 8E).  The fallback fires
+            # only when the workbook produced zero analytics — never when
+            # it produced partial/stale data that might overwrite the
+            # fresh workbook-derived summary.
+            if (self.cfg is not None
+                    and self.study_summary.total_cases == 0
+                    and self.study_summary.successful_cases == 0):
+                persisted = StudySummary.load_json(
+                    self.cfg.work_dir() / "last_study_summary.json")
+                if persisted is not None:
+                    self.study_summary = persisted
+        except Exception:
+            log.debug("Study summary hydration failed — non-fatal",
+                      exc_info=True)
+            self.study_summary = None
+        self.studySummaryReady.emit(self.study_summary)
 
     # -- live updates driven by engine events (no workbook reads) -------- #
     def apply_event(self, evt: Event) -> None:

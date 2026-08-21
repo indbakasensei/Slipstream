@@ -454,16 +454,35 @@ class ExcelManager:
 
     # ------------------------------------------------------------------ #
     def dump_recovery_csv(self, path: Path, exp: Experiment, res: CaseResult, status: str) -> None:
-        """Last-resort sidecar written when the workbook stays locked."""
+        """Last-resort sidecar written when the workbook stays locked.
+
+        Phase 8E: output column headers are template-driven (the template's
+        declared metrics + universal bookkeeping) rather than hardcoded
+        aero columns.
+        """
         new = not path.exists()
         with open(path, "a", newline="", encoding="utf-8") as fh:
             w = csv.writer(fh)
             if new:
-                w.writerow(["row", "aoa_deg", "velocity", "status", "cl", "cd",
-                            "cl_cd", "lift_n", "drag_n", "fl_fd", "iterations",
-                            "converged", "error"])
-            w.writerow([exp.row, exp.aoa_deg, exp.velocity, status, res.cl, res.cd,
-                        res.cl_over_cd, res.lift_n, res.drag_n, res.fl_over_fd,
-                        res.iterations, res.converged, res.error])
+                # Build header row: row + template input params + status +
+                # template metrics + bookkeeping.
+                headers = ["row"]
+                for name in self._study_io.input_parameter_names():
+                    headers.append(name)
+                headers.append("status")
+                for _, h in self._output_column_headers():
+                    headers.append(h)
+                headers += ["iterations", "converged", "error"]
+                w.writerow(headers)
+            row_vals = [exp.row]
+            for name in self._study_io.input_parameter_names():
+                pv = exp.parameter(name)
+                row_vals.append(pv.value if pv is not None else None)
+            row_vals.append(status)
+            for metric_name, _ in self._output_column_headers():
+                mv = res.metric(metric_name)
+                row_vals.append(mv.value if mv is not None else None)
+            row_vals += [res.iterations, res.converged, res.error or ""]
+            w.writerow(row_vals)
         log.error("Result for row %d written to recovery file %s — merge it into the "
                   "workbook manually or rerun after closing Excel.", exp.row, path)
