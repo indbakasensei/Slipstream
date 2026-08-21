@@ -47,10 +47,14 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .excel_manager import ExcelManager
 from .models import STATUS_DONE, STATUS_FAILED, STATUS_RUNNING
+from .platform.metrics import (
+    ANALYTICS_BEST_RATIO, ANALYTICS_HIGHEST,
+    ANALYTICS_LOWEST, MetricDefinition,
+)
 
 
 class WarningCode(str, Enum):
@@ -74,14 +78,52 @@ class StudyWarning:
     message: str
 
 
+@dataclass(frozen=True)
+class StudyHighlight:
+    """One per-metric optimization result produced by the generic analytics
+    engine (Phase 8D).
+
+    Structured as a frozen dataclass so it serialises cleanly and becomes
+    part of the Phase 9 Report Generator API.
+
+    Attributes
+    ----------
+    metric:
+        Template metric name (``"l_over_d"``, ``"pressure_drop"``, …).
+    value:
+        The best value found across all analysed rows.
+    row:
+        The Excel row number that produced this value.
+    unit:
+        Display unit from the metric definition.
+    role:
+        The analytics role that triggered this highlight
+        (``"best-ratio"``, ``"highest"``, ``"lowest"``).
+    display_name:
+        Human-facing label from the metric definition.
+    """
+
+    metric: str
+    value: float
+    row: int
+    unit: str
+    role: str
+    display_name: str
+
+
 @dataclass
 class StudySummary:
     """Read-only snapshot of one finished (or partially finished) batch.
 
+    Phase 8D adds ``highlights`` — a dict of :class:`StudyHighlight` objects
+    keyed by metric name. The generic analytics engine populates this from
+    the template's declared metrics and their ``analytics_role``; the legacy
+    fields (``best_l_over_d``, ``highest_lift_n``, etc.) are kept for
+    backward compatibility and are only populated when the template's metric
+    names happen to match (e.g. External Aerodynamics).
+
     The ``average_*`` fields below are reserved for a future sprint —
-    intentionally always ``None`` in this version. They exist now so the
-    dataclass's shape doesn't need to change (breaking any code already
-    consuming it) once those aggregate metrics are implemented.
+    intentionally always ``None`` in this version.
     """
 
     total_cases: int = 0
@@ -100,6 +142,11 @@ class StudySummary:
     retries: int = 0
     warnings: List[StudyWarning] = field(default_factory=list)
 
+    # Phase 8D: generic highlights — per-role optimization results keyed
+    # by metric name. Populated by the template-driven analytics engine.
+    # Each value is a :class:`StudyHighlight` (frozen dataclass).
+    highlights: Dict[str, StudyHighlight] = field(default_factory=dict)
+
     # --- Reserved for a future sprint — never populated in v1 --------- #
     average_l_over_d: Optional[float] = None
     average_cl: Optional[float] = None
@@ -111,12 +158,58 @@ def _finite(x: object) -> bool:
     return isinstance(x, (int, float)) and math.isfinite(x)
 
 
+def _update_highlight(highlights: Dict[str, StudyHighlight],
+                      metric_name: str, role: str, value: float, row: int,
+                      unit: str, display_name: str) -> None:
+    """Update a highlight entry for ``metric_name`` if ``value`` is better
+    than the current best (or if no entry exists yet).
+
+    ``role`` determines the comparison direction:
+
+    * ``best-ratio`` / ``highest`` — strict ``>`` (first-wins tie-breaking)
+    * ``lowest`` — strict ``<``
+    """
+    prev = highlights.get(metric_name)
+    better = False
+    if role in (ANALYTICS_BEST_RATIO, ANALYTICS_HIGHEST):
+        better = prev is None or value > prev.value
+    elif role == ANALYTICS_LOWEST:
+        better = prev is None or value < prev.value
+    if better:
+        highlights[metric_name] = StudyHighlight(
+            metric=metric_name, value=value, row=row,
+            unit=unit, role=role, display_name=display_name)
+
+
+def _metric_value_for_role(role: str, mv: Any) -> Optional[float]:
+    """Extract a comparable float from a MetricValue or raw value for the
+    given analytics role. Returns None when the value is absent or not
+    finite (the caller simply skips that row for that metric).
+    """
+    if mv is None:
+        return None
+    val = mv.value if hasattr(mv, "value") else mv
+    return float(val) if _finite(val) else None
+
+
 def analyze_study(excel: ExcelManager, rows: Iterable[int],
-                  retries: int = 0) -> StudySummary:
+                  retries: int = 0,
+                  template: Optional[Any] = None) -> StudySummary:
     """Compute a :class:`StudySummary` for exactly ``rows`` — the row
     numbers the caller queued for one batch — by re-reading their current
     state from ``excel``. Never raises; a row whose data can't be read
     cleanly is simply skipped for that metric, not fatal to the summary.
+
+    Phase 8D: when ``template`` is provided (a
+    :class:`~cfdauto.platform.SimulationTemplate`), the analytics engine
+    reads the template's declared metrics and their ``analytics_role`` to
+    compute generic ``highlights`` — no hard-coded metric names. The legacy
+    fields (``best_l_over_d``, ``highest_lift_n``, etc.) are still
+    populated when the template's metric names match, preserving backward
+    compatibility for External Aerodynamics.
+
+    When ``template`` is ``None``, the legacy hard-coded analytics path
+    runs unchanged (pre-Phase-8B callers).
     """
     row_set = sorted(set(rows))
     summary = StudySummary(total_cases=len(row_set), retries=max(0, retries))
@@ -129,41 +222,92 @@ def analyze_study(excel: ExcelManager, rows: Iterable[int],
     status_by_row = {e.row: (e.status or "").strip().upper()
                      for e in excel.read_experiments() if e.row in row_set}
 
+    # Phase 8D: build a role map from the template's declared metrics.
+    # metric_name → (analytics_role, display_name, unit)
+    role_map: Dict[str, Tuple[str, str, str]] = {}
+    if template is not None:
+        for md in template.supported_metrics:
+            if md.analytics_role:
+                role_map[md.name] = (md.analytics_role, md.display_name, md.unit)
+
     unconverged_success = 0
     for row in row_set:
         status = status_by_row.get(row, "")
 
         if status == STATUS_DONE:
             summary.successful_cases += 1
-            outputs = excel.read_row_outputs(row)
 
-            cl_cd = outputs.get("cl_cd")
-            if _finite(cl_cd) and (summary.best_l_over_d is None
-                                   or cl_cd > summary.best_l_over_d):
-                summary.best_l_over_d = float(cl_cd)
-                summary.best_l_over_d_row = row
+            if template is not None:
+                # Phase 8D: generic path — read template metrics from Excel.
+                metrics = excel.read_row_metrics(row)
+                for metric_name, (role, display_name, unit) in role_map.items():
+                    mv = metrics.get(metric_name)
+                    val = _metric_value_for_role(role, mv)
+                    if val is not None:
+                        _update_highlight(summary.highlights, metric_name,
+                                          role, val, row, unit, display_name)
 
-            lift = outputs.get("lift")
-            if _finite(lift) and (summary.highest_lift_n is None
-                                  or lift > summary.highest_lift_n):
-                summary.highest_lift_n = float(lift)
-                summary.highest_lift_row = row
+                # Bookkeeping-derived: fastest convergence is NOT a metric
+                # analytics role — it is always tracked from iterations/
+                # converged bookkeeping, regardless of template.
+                outputs = excel.read_row_outputs(row)
+                converged = (str(outputs.get("converged") or "")
+                             .strip().upper() == "YES")
+                iterations = outputs.get("iterations")
+                if converged and _finite(iterations):
+                    it = int(iterations)
+                    if (summary.fastest_convergence_iterations is None
+                            or it < summary.fastest_convergence_iterations):
+                        summary.fastest_convergence_iterations = it
+                        summary.fastest_convergence_row = row
+                if not converged:
+                    unconverged_success += 1
+            else:
+                # Legacy path — hardcoded External Aero metric names.
+                outputs = excel.read_row_outputs(row)
 
-            drag = outputs.get("drag")
-            if _finite(drag) and (summary.lowest_drag_n is None
-                                  or drag < summary.lowest_drag_n):
-                summary.lowest_drag_n = float(drag)
-                summary.lowest_drag_row = row
+                cl_cd = outputs.get("cl_cd")
+                if _finite(cl_cd) and (summary.best_l_over_d is None
+                                       or cl_cd > summary.best_l_over_d):
+                    summary.best_l_over_d = float(cl_cd)
+                    summary.best_l_over_d_row = row
 
-            converged = str(outputs.get("converged") or "").strip().upper() == "YES"
-            iterations = outputs.get("iterations")
-            if converged and _finite(iterations):
-                if (summary.fastest_convergence_iterations is None
-                        or iterations < summary.fastest_convergence_iterations):
-                    summary.fastest_convergence_iterations = int(iterations)
-                    summary.fastest_convergence_row = row
-            if not converged:
-                unconverged_success += 1
+                lift = outputs.get("lift")
+                if _finite(lift) and (summary.highest_lift_n is None
+                                      or lift > summary.highest_lift_n):
+                    summary.highest_lift_n = float(lift)
+                    summary.highest_lift_row = row
+
+                drag = outputs.get("drag")
+                if _finite(drag) and (summary.lowest_drag_n is None
+                                      or drag < summary.lowest_drag_n):
+                    summary.lowest_drag_n = float(drag)
+                    summary.lowest_drag_row = row
+
+                converged = (str(outputs.get("converged") or "")
+                             .strip().upper() == "YES")
+                iterations = outputs.get("iterations")
+                if converged and _finite(iterations):
+                    if (summary.fastest_convergence_iterations is None
+                            or iterations < summary.fastest_convergence_iterations):
+                        summary.fastest_convergence_iterations = int(iterations)
+                        summary.fastest_convergence_row = row
+                if not converged:
+                    unconverged_success += 1
+
+            # Phase 8D: also populate legacy fields from highlights for
+            # External Aero (when the template declares matching metric names).
+            if template is not None:
+                hl = summary.highlights
+                if "l_over_d" in hl and hl["l_over_d"].role == ANALYTICS_BEST_RATIO:
+                    summary.best_l_over_d = hl["l_over_d"].value
+                    summary.best_l_over_d_row = hl["l_over_d"].row
+                if "lift" in hl and hl["lift"].role == ANALYTICS_HIGHEST:
+                    summary.highest_lift_n = hl["lift"].value
+                    summary.highest_lift_row = hl["lift"].row
+                if "drag" in hl and hl["drag"].role == ANALYTICS_LOWEST:
+                    summary.lowest_drag_n = hl["drag"].value
+                    summary.lowest_drag_row = hl["drag"].row
 
         elif status == STATUS_FAILED:
             summary.failed_cases += 1

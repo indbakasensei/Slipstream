@@ -19,7 +19,8 @@ from __future__ import annotations
 
 from typing import Tuple
 
-from .metrics import SOURCE_DERIVED, SOURCE_SOLVER_REPORT, MetricDefinition
+from .metrics import (ANALYTICS_HIGHEST, ANALYTICS_LOWEST, SOURCE_DERIVED,
+                       SOURCE_SOLVER_REPORT, MetricDefinition)
 from .parameters import ParameterDefinition, ParameterType
 from .study_definition import StudyDefinition, StudyParameter
 from .templates import SimulationTemplate
@@ -74,9 +75,12 @@ _INTERNAL_FLOW_METRICS: Tuple[MetricDefinition, ...] = (
     # output_column is the Phase 8B generic output-column contract — the
     # columns this template's results map to (a forward declaration; the
     # internal-flow Excel writer lands in Phase 8C).
+    # analytics_role declares what the generic analytics engine should compute
+    # for this metric (Phase 8D) — no hard-coded metric names in analytics.
     MetricDefinition(
         id="pressure-drop", name="pressure_drop", display_name="Pressure Drop",
         unit="Pa", source=SOURCE_SOLVER_REPORT, output_column="PressureDrop_Pa",
+        analytics_role=ANALYTICS_LOWEST,
         description="Static pressure drop between the pipe inlet and outlet."),
     MetricDefinition(
         id="reynolds-number", name="reynolds_number",
@@ -88,6 +92,7 @@ _INTERNAL_FLOW_METRICS: Tuple[MetricDefinition, ...] = (
         id="friction-factor", name="friction_factor",
         display_name="Friction Factor", unit="", source=SOURCE_DERIVED,
         output_column="FrictionFactor",
+        analytics_role=ANALYTICS_LOWEST,
         description="Darcy friction factor, from the pressure drop or "
                     "correlated against the Reynolds number (Moody chart)."),
 )

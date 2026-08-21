@@ -1746,7 +1746,7 @@ While reading the Excel consumers, a latent pre-existing defect was found but
 
 ### 19.15 What Phase 8C deliberately leaves for later
 
-- **8D** generic results & analytics.
+- **8D** generic results & analytics. ✅ Complete.
 - **8E** generic storage / ledger.
 - **8F** generic events + linter.
 - **8G** full registration seam / plugin discovery.
@@ -1754,3 +1754,92 @@ While reading the Excel consumers, a latent pre-existing defect was found but
 
 The GUI, ledger, analytics, orchestrator, plugin discovery, and NACA0012/CFD
 work are **untouched** by Phase 8C.
+
+---
+
+## 20. Phase 8D — Generic Analytics Engine
+
+### 20.1 Overview
+
+Phase 8D removes the final hardcoded External Aerodynamics assumptions from
+the analytics layer. Analytics becomes template-driven:
+
+```
+SimulationTemplate
+  └─ supported_metrics
+       └─ MetricDefinition.analytics_role  (NEW)
+            ├─ "best-ratio"  → maximize (e.g. L/D)
+            ├─ "highest"     → maximize (e.g. lift)
+            ├─ "lowest"      → minimize (e.g. drag, pressure drop)
+            └─ None          → no highlight
+
+analyze_study(template=tmpl)
+  └─ reads template.supported_metrics
+  └─ computes highlights from Excel data
+  └─ populates StudySummary.highlights (Dict[str, StudyHighlight])
+  └─ populates legacy fields when metric names match (External Aero)
+```
+
+### 20.2 Changes
+
+| File | Change |
+|------|--------|
+| `cfdauto/platform/metrics.py` | Added `analytics_role` field to `MetricDefinition`; added `ANALYTICS_BEST_RATIO`, `ANALYTICS_HIGHEST`, `ANALYTICS_LOWEST` constants |
+| `cfdauto/platform/templates.py` | Tagged External Aero metrics: `l_over_d→best-ratio`, `lift→highest`, `drag→lowest` |
+| `cfdauto/platform/internal_flow.py` | Tagged Internal Flow metrics: `pressure_drop→lowest`, `friction_factor→lowest`; `reynolds_number→None` (flow regime indicator, not an optimization target) |
+| `cfdauto/study_analytics.py` | Added `StudyHighlight` frozen dataclass; `StudySummary.highlights: Dict[str, StudyHighlight]`; `analyze_study(template=)` parameter; generic highlight computation from template roles |
+| `cfdauto/orchestrator.py` | Pass `template=self._template` to `analyze_study()`; updated log line to use `StudyHighlight` attributes |
+| `tests/test_phase8d_generic_analytics.py` | 28 tests covering roles, highlights, legacy compat, tie-breaking, serialization, failed cases, Internal Flow, canary |
+
+### 20.3 StudyHighlight dataclass
+
+```python
+@dataclass(frozen=True)
+class StudyHighlight:
+    metric: str         # template metric name ("l_over_d", "pressure_drop")
+    value: float        # best value found across all analysed rows
+    row: int            # Excel row number
+    unit: str           # display unit from metric definition
+    role: str           # analytics role ("best-ratio", "highest", "lowest")
+    display_name: str   # human-facing label from metric definition
+```
+
+Frozen dataclass so it serialises cleanly and becomes part of the Phase 9
+Report Generator API.
+
+### 20.4 Analytics roles by template
+
+| Template | Metric | Role | Justification |
+|----------|--------|------|---------------|
+| External Aero | `l_over_d` | `best-ratio` | Aerodynamic efficiency — higher is better |
+| External Aero | `lift` | `highest` | Higher lift force is better |
+| External Aero | `drag` | `lowest` | Lower drag force is better |
+| External Aero | `cl`, `cd` | None | Raw coefficients — no single "best" |
+| Internal Flow | `pressure_drop` | `lowest` | Lower pressure drop is better |
+| Internal Flow | `friction_factor` | `lowest` | Lower friction is better |
+| Internal Flow | `reynolds_number` | None | Flow regime indicator — not an optimization target |
+
+### 20.5 Bookkeeping-derived quantities
+
+Fastest convergence (iterations-to-convergence) is **not** a metric analytics
+role. It is always tracked from `iterations`/`converged` bookkeeping fields,
+regardless of template. Metrics are physics quantities only.
+
+### 20.6 Backward compatibility
+
+- `analyze_study()` without `template` uses the legacy hardcoded path
+  (pre-Phase-8D callers unchanged).
+- External Aero highlights map to legacy `StudySummary` fields
+  (`best_l_over_d`, `highest_lift_n`, `lowest_drag_n`).
+- Tie-breaking is deterministic (strict `>` / `<`, first-wins).
+
+### 20.7 What Phase 8D deliberately leaves for later
+
+- **8E** generic storage / ledger (ledger schema still hardcoded).
+- **8F** generic events + linter.
+- **8G** full registration seam / plugin discovery.
+- **8H** Internal Flow end-to-end through every downstream subsystem.
+
+The GUI, ledger, excel_manager, state, and execution are **untouched**
+(except the orchestrator one-line `template=` pass-through and log line
+update).

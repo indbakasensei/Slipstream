@@ -22,7 +22,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from .metrics import SOURCE_DERIVED, MetricDefinition
+from .metrics import (ANALYTICS_BEST_RATIO, ANALYTICS_HIGHEST,
+                       ANALYTICS_LOWEST, SOURCE_DERIVED, MetricDefinition)
 from .parameters import ParameterDefinition, ParameterType
 from .study_definition import StudyDefinition, StudyParameter
 
@@ -219,6 +220,8 @@ _EXT_AERO_METRICS: Tuple[MetricDefinition, ...] = (
     # output_column mirrors the legacy ColumnMap headers (CL / CD / CL/CD /
     # Lift_N / Drag_N) — Phase 8B declares them on the metric so the generic
     # output layer can derive the exact current columns from the template.
+    # analytics_role declares what the generic analytics engine should compute
+    # for this metric (Phase 8D) — no hard-coded metric names in analytics.
     MetricDefinition(
         id="lift-coefficient", name="cl", display_name="CL",
         output_column="CL",
@@ -233,14 +236,17 @@ _EXT_AERO_METRICS: Tuple[MetricDefinition, ...] = (
     MetricDefinition(
         id="lift-to-drag-ratio", name="l_over_d", display_name="L/D",
         output_column="CL/CD", source=SOURCE_DERIVED,
+        analytics_role=ANALYTICS_BEST_RATIO,
         description="Aerodynamic efficiency, CL divided by CD."),
     MetricDefinition(
         id="lift-force", name="lift", display_name="Lift", unit="N",
         output_column="Lift_N",
+        analytics_role=ANALYTICS_HIGHEST,
         description="Wind-axis lift force on the configured wall zones."),
     MetricDefinition(
         id="drag-force", name="drag", display_name="Drag", unit="N",
         output_column="Drag_N",
+        analytics_role=ANALYTICS_LOWEST,
         description="Wind-axis drag force on the configured wall zones."),
 )
 

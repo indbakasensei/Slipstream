@@ -329,17 +329,29 @@ class Orchestrator:
         what to do with its result, matching every other auxiliary system
         in this class (ledger, telemetry): never fatal to the batch."""
         try:
-            summary = analyze_study(self.excel, rows, retries=self._retries_used)
+            summary = analyze_study(self.excel, rows,
+                                    retries=self._retries_used,
+                                    template=self._template)
         except Exception:
             log.debug("Study analytics failed — non-fatal", exc_info=True)
             return StudySummary(total_cases=len(set(rows)), retries=self._retries_used)
 
+        # Phase 8D: prefer generic highlights for the log line; fall back to
+        # legacy fields when no template was provided.
+        hl_parts = []
+        for name, hl in sorted(summary.highlights.items()):
+            hl_parts.append(f"{hl.display_name}={hl.value:.3f} "
+                           f"(row {hl.row})")
+        if summary.best_l_over_d is not None and "l_over_d" not in summary.highlights:
+            hl_parts.append(
+                f"best L/D={summary.best_l_over_d:.3f} "
+                f"(row {summary.best_l_over_d_row})")
+        hl_str = ", ".join(hl_parts)
         log.info(
             "Study summary: %d/%d succeeded, %d failed, %d retry attempt(s)%s",
             summary.successful_cases, summary.total_cases, summary.failed_cases,
             summary.retries,
-            (f", best L/D={summary.best_l_over_d:.3f} (row {summary.best_l_over_d_row})"
-             if summary.best_l_over_d is not None else ""))
+            (f", {hl_str}" if hl_str else ""))
         for w in summary.warnings:
             log.warning("Study analytics [%s]: %s", w.code.value, w.message)
         return summary

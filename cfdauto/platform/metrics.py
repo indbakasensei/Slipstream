@@ -22,6 +22,22 @@ from typing import Optional
 SOURCE_SOLVER_REPORT = "solver-report"     # read from a solver report definition
 SOURCE_DERIVED = "derived"                 # computed from other metrics (e.g. L/D)
 
+# --------------------------------------------------------------------------- #
+# Analytics roles (Phase 8D) — template-declared, data-driven.
+# --------------------------------------------------------------------------- #
+# A metric may optionally declare an analytics role that tells the generic
+# analytics engine what kind of "best" highlight to compute for it. The
+# engine never hardcodes "best L/D" — it reads these roles from the
+# template's declared metrics.
+#
+# Conventional values (plain strings so templates can extend freely):
+ANALYTICS_BEST_RATIO = "best-ratio"   # maximize (e.g. L/D, efficiency)
+ANALYTICS_HIGHEST = "highest"          # maximize (e.g. lift, power)
+ANALYTICS_LOWEST = "lowest"            # minimize (e.g. drag, pressure drop)
+# Note: fastest convergence is NOT a metric analytics role — it is a
+# bookkeeping-derived quantity tracked separately by the analytics engine.
+# Metrics are physics quantities only.
+
 
 @dataclass(frozen=True)
 class MetricDefinition:
@@ -49,6 +65,12 @@ class MetricDefinition:
         to (the generic output-column contract:
         template → declared metrics → output columns). ``None`` means
         "fall back to ``display_name``".
+    analytics_role:
+        Phase 8D — optional analytics role declaring what kind of highlight
+        to compute for this metric (one of the ``ANALYTICS_*`` constants,
+        or a template-specific string). ``None`` means "no analytics
+        highlight". The generic analytics engine reads these roles from
+        the template's declared metrics rather than hardcoding metric names.
     """
 
     id: str
@@ -58,3 +80,4 @@ class MetricDefinition:
     source: str = SOURCE_SOLVER_REPORT
     description: str = ""
     output_column: Optional[str] = None
+    analytics_role: Optional[str] = None
